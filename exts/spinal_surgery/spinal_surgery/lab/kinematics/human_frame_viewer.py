@@ -4,6 +4,9 @@ import pyvista as pv
 import torch
 import numpy as np
 
+
+
+
 class HumanFrameViewer:
     # Class: human frame viewer:
     # 1 plotter per label map
@@ -31,6 +34,7 @@ class HumanFrameViewer:
                 self.p_list.append(p)
 
                 p.add_volume(label_maps[i])
+                p.add_mesh(pv.Sphere(radius=5.0), color='red')
                 p.show_axes()
                 p.show(interactive_update=True)
 

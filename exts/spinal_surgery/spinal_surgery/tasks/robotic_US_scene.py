@@ -21,7 +21,7 @@ from omni.isaac.lab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on using the interactive scene interface.")
-parser.add_argument("--num_envs", type=int, default=200, help="Number of environments to spawn.")
+parser.add_argument("--num_envs", type=int, default=20, help="Number of environments to spawn.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -53,6 +53,7 @@ from omni.isaac.lab.utils.math import subtract_frame_transforms, combine_frame_t
 from pxr import Gf, UsdGeom
 from scipy.spatial.transform import Rotation as R
 from spinal_surgery.lab.kinematics.human_frame_viewer import HumanFrameViewer
+from spinal_surgery.lab.kinematics.surface_motion_planner import SurfaceMotionPlanner
 
 INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
     joint_pos={
@@ -64,7 +65,7 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.0)
+    pos = (0.0, -0.75, 0.2)
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
@@ -73,14 +74,20 @@ INIT_STATE_HUMAN = AssetBaseCfg.InitialStateCfg(
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
 
+quat = R.from_euler("xyz", (90, 0, 90), degrees=True).as_quat()
+INIT_STATE_BED = AssetBaseCfg.InitialStateCfg(
+    pos=((0.0, 0.0, 0.0)),
+    rot=((quat[3], quat[0], quat[1], quat[2]))
+)
+
 usd_file_list = [
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0010/combined/combined.usd", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0012/combined/combined.usd",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0014/combined/combined.usd",
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0015/combined/combined.usd",
 ]
 label_map_file_list = [
     f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0010/combined_label_map.nii.gz", 
-    f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0012/combined_label_map.nii.gz",
+    f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014/combined_label_map.nii.gz",
     f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015/combined_label_map.nii.gz",
 ]
 
@@ -107,8 +114,10 @@ class RobotSceneCfg(InteractiveSceneCfg):
     medical_bad = AssetBaseCfg(
         prim_path="/World/envs/env_.*/Bed", 
         spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{ASSETS_DATA_DIR}/MedicalBed/usd/hospital_bed.usd",
+            usd_path=f"{ASSETS_DATA_DIR}/MedicalBed/usd_no_contact/hospital_bed.usd",
+            scale = (0.001, 0.001, 0.001),
         ),
+        init_state = INIT_STATE_BED
     )
 
 
@@ -143,6 +152,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     human = scene['human']
     robot_entity_cfg = SceneEntityCfg("robot_US", joint_names=["lbr_joint_.*"], body_names=["lbr_link_ee"])
     robot_entity_cfg.resolve(scene)
+    US_ee_jacobi_idx = robot_entity_cfg.body_ids[-1]
 
     # define ik controllers
     ik_params = {"lambda_val": 0.00001}
@@ -152,7 +162,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     pose_diff_ik_controller = DifferentialIKController(pose_diff_ik_cfg, scene.num_envs, device=sim.device)
 
     # construct the human frame viewer:
-    human_frame_viewer = HumanFrameViewer(label_map_list, scene.num_envs)
+    # human_frame_viewer = HumanFrameViewer(label_map_list, scene.num_envs)
+    surface_motion_planner = SurfaceMotionPlanner(
+        label_map_list, 
+        scene.num_envs, 
+        [[50, 50, 2.0], [150, 200, 4.0]], [100, 120, 3.14], 
+        sim.device)
 
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
@@ -203,13 +218,41 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             scene.reset()
             print("[INFO]: Resetting robot state...")
         # Apply random action
-        robot.set_joint_position_target(joint_pos + torch.randn_like(robot.data.joint_pos)*0.1)
+        rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
+        rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
+        surface_motion_planner.update_cmd(rand_x_z_angle)
 
         # update the view
         # get ee pose in wolrd frame
         US_ee_pose_w = robot.data.body_state_w[:, robot_entity_cfg.body_ids[-1], 0:7]
+        world_to_base_pose = robot.data.root_link_state_w[:, 0:7]
+        US_ee_pos_b, US_ee_quat_b = subtract_frame_transforms(
+            world_to_base_pose[:, 0:3], world_to_base_pose[:, 3:7], US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7]
+        )
         # compute frame in root frame
-        human_frame_viewer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        surface_motion_planner.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        world_to_ee_target_pos, world_to_ee_target_rot = surface_motion_planner.compute_world_ee_pose_from_cmd(world_to_human_pos, world_to_human_rot)
+        world_to_ee_target_pose = torch.cat([world_to_ee_target_pos, world_to_ee_target_rot], dim=-1)
+        
+        base_to_ee_target_pos, base_to_ee_target_quat = subtract_frame_transforms(
+            world_to_base_pose[:, 0:3], world_to_base_pose[:, 3:7], world_to_ee_target_pos, world_to_ee_target_rot
+        )
+        base_to_ee_target_pose = torch.cat([base_to_ee_target_pos, base_to_ee_target_quat], dim=-1)
+
+        # set new command
+        pose_diff_ik_controller.set_command(base_to_ee_target_pose)
+        
+        # get joint position targets
+        US_jacobian = robot.root_physx_view.get_jacobians()[:, US_ee_jacobi_idx-1, :, robot_entity_cfg.joint_ids]
+        US_joint_pos = robot.data.joint_pos[:, robot_entity_cfg.joint_ids]
+        # compute the joint commands
+        joint_pos_des = pose_diff_ik_controller.compute(
+            US_ee_pos_b, 
+            US_ee_quat_b,
+            US_jacobian, 
+            US_joint_pos
+        )
+        robot.set_joint_position_target(joint_pos_des, joint_ids=robot_entity_cfg.joint_ids)
         
         # -- write data to sim
         scene.write_data_to_sim()

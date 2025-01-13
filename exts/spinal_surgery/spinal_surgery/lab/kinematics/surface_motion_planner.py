@@ -1,0 +1,91 @@
+from spinal_surgery.lab.kinematics.human_frame_viewer import HumanFrameViewer
+import torch
+import numpy as np
+from spinal_surgery.lab.kinematics.utils import *
+from omni.isaac.lab.utils.math import quat_from_matrix, combine_frame_transforms, transform_points
+
+
+class SurfaceMotionPlanner(HumanFrameViewer):
+    # Class: surface motion planner
+    # Function: __init__
+    # Function: plan_motion
+    def __init__(self, label_maps, num_envs, x_z_range, init_x_z_x_angle, device, body_label=120, height = 0.1,
+                 visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
+        '''
+        label maps: list of label maps (3D volumes)
+        num_envs: number of environments
+        plane_axes: dict of plane axes for imaging, in our case is 'x' and 'z' axes of the ee frame
+        x_z_range: range of x and z in mm in the human frame as a rectangle [[min_x, min_z, min_x_angle], [max_x, max_z, max_x_angle]]
+        init_x_z_y_angle: initial x, z human position, angle between ee x axis and human x axis in the xz plane 
+        of human frame [x, z, x_angle]
+        height: height of ee above the surface
+        '''
+        super().__init__(label_maps, num_envs, visualize, plane_axes)
+
+        self.x_z_range = x_z_range
+        self.current_x_z_x_angle_cmd = torch.tensor(init_x_z_x_angle, device=device).repeat(num_envs, 1)
+        self.device = device
+        self.body_label = body_label
+        self.height = height
+
+        # construct surface map list X * Z: surface point at 2d postion
+        self.surface_map_list = []
+        for i in range(self.n_human_types):
+            surface_map = construct_lowest_y_array(torch.tensor(self.label_maps[i], device=self.device), self.body_label)
+            self.surface_map_list.append(surface_map)
+        # construct surface normal list X * Z * 3: surface normal at 2d postion
+        self.surface_normal_list = [] 
+        for i in range(self.n_human_types):
+            surface_normal = construct_boundary_normals_array(torch.tensor(self.label_maps[i], device=self.device), self.surface_map_list[i], self.body_label)
+            self.surface_normal_list.append(surface_normal)
+
+    def compute_world_ee_pose_from_cmd(self, world_to_human_pos, world_to_human_rot):
+        '''
+        compute world ee pose from human frame command
+        world_to_human_pos: (num_envs, 3)
+        world_to_human_rot: (num_envs, 4)
+        '''
+        
+        target_quat_list = []
+        target_pos_list = []
+        # compute z axis
+        for i in range(self.num_envs):
+            cur_x = self.current_x_z_x_angle_cmd[i, 0]
+            cur_z = self.current_x_z_x_angle_cmd[i, 1]
+            # human to ee rotation
+            target_x_axis_proj = torch.tensor(
+                [torch.cos(self.current_x_z_x_angle_cmd[i,2]), 
+                0, 
+                torch.sin(self.current_x_z_x_angle_cmd[i, 2])], device=self.device)
+            target_z_axis = self.surface_normal_list[i % self.n_human_types][cur_x.int(), cur_z.int()]
+            # target_z_axis = torch.tensor([0, 1.0, 0.0], dtype=torch.float32, device=self.device)
+            target_y_axis = torch.cross(target_z_axis, target_x_axis_proj)
+            target_x_axis = torch.cross(target_y_axis, target_z_axis)
+            target_rot_mat = torch.stack([target_x_axis, target_y_axis, target_z_axis], dim=1)
+            target_quat = quat_from_matrix(target_rot_mat)
+            target_quat_list.append(target_quat)
+
+            # get human to ee position
+            target_y = self.surface_map_list[i % self.n_human_types][cur_x.int(), cur_z.int()]
+            target_pos = torch.tensor([cur_x, target_y, cur_z], device=self.device) / 1000.0
+            target_pos_list.append(target_pos - target_z_axis * self.height)
+
+        human_to_ee_target_quat = torch.stack(target_quat_list) # (num_envs, 4)
+        human_to_ee_target_pos = torch.stack(target_pos_list) # (num_envs, 3)
+
+        # get world to human position
+        world_to_ee_target_pos, world_to_ee_target_rot = combine_frame_transforms(
+            world_to_human_pos, world_to_human_rot, human_to_ee_target_pos, human_to_ee_target_quat
+        )
+
+        return world_to_ee_target_pos, world_to_ee_target_rot
+    
+    def update_cmd(self, d_x_z_x_angle):
+        '''
+        update command
+        d_x_z_x_angle: (num_envs, 3)
+        '''
+        self.current_x_z_x_angle_cmd += d_x_z_x_angle
+        self.current_x_z_x_angle_cmd = torch.clamp(self.current_x_z_x_angle_cmd, 
+                                                   torch.tensor(self.x_z_range[0], device=self.device),
+                                                   torch.tensor(self.x_z_range[1], device=self.device))
