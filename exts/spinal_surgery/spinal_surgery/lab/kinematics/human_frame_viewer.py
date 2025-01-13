@@ -14,14 +14,14 @@ class HumanFrameViewer:
     # Function: slice label map
     # Function: update plotter
 
-    def __init__(self, label_maps, num_envs, visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
+    def __init__(self, label_maps, num_envs, device, visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
         num_envs: number of environments
         plane_axes: dict of plane axes for imaging, in our case is 'x' and 'z' axes of the ee frame
         '''
         
-        self.label_maps = label_maps
+        self.label_maps = [torch.tensor(label_map, device=device) for label_map in label_maps]
         self.num_envs = num_envs
         self.n_human_types = len(label_maps)
         self.plane_axes = plane_axes
@@ -33,7 +33,7 @@ class HumanFrameViewer:
                 p = pv.Plotter()
                 self.p_list.append(p)
 
-                p.add_volume(label_maps[i])
+                p.add_volume(label_maps[i], opacity=0.01)
                 p.add_mesh(pv.Sphere(radius=5.0), color='red')
                 p.show_axes()
                 p.show(interactive_update=True)

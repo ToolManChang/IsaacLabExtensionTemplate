@@ -21,7 +21,7 @@ from omni.isaac.lab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on using the interactive scene interface.")
-parser.add_argument("--num_envs", type=int, default=20, help="Number of environments to spawn.")
+parser.add_argument("--num_envs", type=int, default=200, help="Number of environments to spawn.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -54,6 +54,7 @@ from pxr import Gf, UsdGeom
 from scipy.spatial.transform import Rotation as R
 from spinal_surgery.lab.kinematics.human_frame_viewer import HumanFrameViewer
 from spinal_surgery.lab.kinematics.surface_motion_planner import SurfaceMotionPlanner
+from spinal_surgery.lab.kinematics.label_img_slicer import LabelImgSlicer
 
 INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
     joint_pos={
@@ -65,7 +66,7 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.2)
+    pos = (0.0, -0.75, 0.1)
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
@@ -163,11 +164,17 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
 
     # construct the human frame viewer:
     # human_frame_viewer = HumanFrameViewer(label_map_list, scene.num_envs)
-    surface_motion_planner = SurfaceMotionPlanner(
+    # surface_motion_planner = SurfaceMotionPlanner(
+    #     label_map_list, 
+    #     scene.num_envs, 
+    #     [[50, 50, 2.0], [150, 200, 4.0]], [100, 120, 3.14], 
+    #     sim.device)
+    label_img_slicer = LabelImgSlicer(
         label_map_list, 
         scene.num_envs, 
         [[50, 50, 2.0], [150, 200, 4.0]], [100, 120, 3.14], 
-        sim.device)
+        sim.device, [150, 200], 0.0005
+    )
 
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
@@ -220,7 +227,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         # Apply random action
         rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
         rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
-        surface_motion_planner.update_cmd(rand_x_z_angle)
+        label_img_slicer.update_cmd(rand_x_z_angle)
 
         # update the view
         # get ee pose in wolrd frame
@@ -229,9 +236,13 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         US_ee_pos_b, US_ee_quat_b = subtract_frame_transforms(
             world_to_base_pose[:, 0:3], world_to_base_pose[:, 3:7], US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7]
         )
+        # update image simulation
+        label_img_slicer.slice_label_img(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        label_img_slicer.visualize()
+        
         # compute frame in root frame
-        surface_motion_planner.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
-        world_to_ee_target_pos, world_to_ee_target_rot = surface_motion_planner.compute_world_ee_pose_from_cmd(world_to_human_pos, world_to_human_rot)
+        label_img_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        world_to_ee_target_pos, world_to_ee_target_rot = label_img_slicer.compute_world_ee_pose_from_cmd(world_to_human_pos, world_to_human_rot)
         world_to_ee_target_pose = torch.cat([world_to_ee_target_pos, world_to_ee_target_rot], dim=-1)
         
         base_to_ee_target_pos, base_to_ee_target_quat = subtract_frame_transforms(

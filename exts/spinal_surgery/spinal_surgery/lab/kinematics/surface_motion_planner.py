@@ -9,7 +9,8 @@ class SurfaceMotionPlanner(HumanFrameViewer):
     # Class: surface motion planner
     # Function: __init__
     # Function: plan_motion
-    def __init__(self, label_maps, num_envs, x_z_range, init_x_z_x_angle, device, body_label=120, height = 0.1,
+    def __init__(self, label_maps, num_envs, x_z_range, init_x_z_x_angle, device, 
+                 body_label=120, height = 0.1,
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
@@ -20,7 +21,7 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         of human frame [x, z, x_angle]
         height: height of ee above the surface
         '''
-        super().__init__(label_maps, num_envs, visualize, plane_axes)
+        super().__init__(label_maps, num_envs, device, visualize, plane_axes)
 
         self.x_z_range = x_z_range
         self.current_x_z_x_angle_cmd = torch.tensor(init_x_z_x_angle, device=device).repeat(num_envs, 1)
@@ -31,13 +32,14 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         # construct surface map list X * Z: surface point at 2d postion
         self.surface_map_list = []
         for i in range(self.n_human_types):
-            surface_map = construct_lowest_y_array(torch.tensor(self.label_maps[i], device=self.device), self.body_label)
+            surface_map = construct_lowest_y_array(self.label_maps[i], self.body_label)
             self.surface_map_list.append(surface_map)
         # construct surface normal list X * Z * 3: surface normal at 2d postion
         self.surface_normal_list = [] 
         for i in range(self.n_human_types):
-            surface_normal = construct_boundary_normals_array(torch.tensor(self.label_maps[i], device=self.device), self.surface_map_list[i], self.body_label)
+            surface_normal = construct_boundary_normals_array(self.label_maps[i], self.surface_map_list[i], self.body_label)
             self.surface_normal_list.append(surface_normal)
+
 
     def compute_world_ee_pose_from_cmd(self, world_to_human_pos, world_to_human_rot):
         '''
@@ -89,3 +91,9 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         self.current_x_z_x_angle_cmd = torch.clamp(self.current_x_z_x_angle_cmd, 
                                                    torch.tensor(self.x_z_range[0], device=self.device),
                                                    torch.tensor(self.x_z_range[1], device=self.device))
+        
+    def take_slice(self, human_to_ee_pos, human_to_ee_quat):
+        '''
+        human_to_ee_pos: (num_envs, 3)
+        human_to_ee_quat: (num_envs, 4)
+        '''
