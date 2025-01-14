@@ -11,7 +11,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
     # Function: __init__
     # Function: slice_label_img
     # Function: update_plotter
-    def __init__(self, label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, 
+    def __init__(self, label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_convert_map,
                  img_size, img_res, label_res=0.0015,
                  body_label=120, height = 0.1, height_img = 0.105,
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
@@ -30,6 +30,9 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         self.img_res = img_res
         self.img_real_size = [img_size[0] * img_res, img_size[1] * img_res]
         self.height_img = height_img
+        for i in range(self.n_human_types):
+            for key, value in label_convert_map.items():
+                self.label_maps[i][self.label_maps[i] == key] = value
 
         # construct images
         self.label_img_tensor = torch.zeros((self.num_envs, self.img_size[0], self.img_size[1]), 
@@ -94,7 +97,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
 
         combined_img_np = combined_img.cpu().numpy()
 
-        cv2.imshow("Real-Time Image Update", combined_img_np.T / 120)
+        cv2.imshow("Label Image Update", combined_img_np.T / np.max(combined_img_np))
         cv2.waitKey(1)
 
         return

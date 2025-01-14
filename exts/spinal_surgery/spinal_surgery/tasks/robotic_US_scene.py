@@ -21,7 +21,7 @@ from omni.isaac.lab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on using the interactive scene interface.")
-parser.add_argument("--num_envs", type=int, default=200, help="Number of environments to spawn.")
+parser.add_argument("--num_envs", type=int, default=100, help="Number of environments to spawn.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -54,7 +54,10 @@ from pxr import Gf, UsdGeom
 from scipy.spatial.transform import Rotation as R
 from spinal_surgery.lab.kinematics.human_frame_viewer import HumanFrameViewer
 from spinal_surgery.lab.kinematics.surface_motion_planner import SurfaceMotionPlanner
-from spinal_surgery.lab.kinematics.label_img_slicer import LabelImgSlicer
+from spinal_surgery.lab.sensors.ultrasound.label_img_slicer import LabelImgSlicer
+from spinal_surgery.lab.sensors.ultrasound.US_slicer import USSlicer
+from ruamel.yaml import YAML
+from spinal_surgery import PACKAGE_DIR
 
 INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
     joint_pos={
@@ -165,19 +168,27 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     pose_diff_ik_cfg = DifferentialIKControllerCfg(command_type="pose", use_relative_mode=False, ik_method="dls", ik_params=ik_params)
     pose_diff_ik_controller = DifferentialIKController(pose_diff_ik_cfg, scene.num_envs, device=sim.device)
 
-    # construct the human frame viewer:
-    # human_frame_viewer = HumanFrameViewer(label_map_list, scene.num_envs)
-    # surface_motion_planner = SurfaceMotionPlanner(
+    # construct label image slicer
+    label_convert_map = YAML().load(open(f"{PACKAGE_DIR}/lab/sensors/cfgs/label_conversion.yaml", 'r'))
+    # label_img_slicer = LabelImgSlicer(
     #     label_map_list, 
+    #     human_stl_list,
     #     scene.num_envs, 
-    #     [[50, 50, 2.0], [150, 200, 4.0]], [100, 120, 3.14], 
-    #     sim.device)
-    label_img_slicer = LabelImgSlicer(
+    #     [[100, 100, 2.64], [200, 200, 3.64]], [150, 150, 3.14], 
+    #     sim.device, label_convert_map,
+    #     [150, 200], 0.0003
+    # )
+
+    # construct US simulator
+    us_cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/sensors/cfgs/us_cfg.yaml", 'r'))
+    US_slicer = USSlicer(
+        us_cfg,
         label_map_list, 
         human_stl_list,
         scene.num_envs, 
         [[100, 100, 2.64], [200, 200, 3.64]], [150, 150, 3.14], 
-        sim.device, [150, 200], 0.0003
+        sim.device, label_convert_map,
+        [150, 200], 0.0003
     )
 
     # Define simulation stepping
@@ -231,7 +242,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         # Apply random action
         rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
         rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
-        label_img_slicer.update_cmd(rand_x_z_angle)
+        US_slicer.update_cmd(rand_x_z_angle)
 
         # update the view
         # get ee pose in wolrd frame
@@ -241,12 +252,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             world_to_base_pose[:, 0:3], world_to_base_pose[:, 3:7], US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7]
         )
         # update image simulation
-        label_img_slicer.slice_label_img(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
-        label_img_slicer.visualize()
+        US_slicer.slice_US(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        US_slicer.visualize()
         
         # compute frame in root frame
-        label_img_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
-        world_to_ee_target_pos, world_to_ee_target_rot = label_img_slicer.compute_world_ee_pose_from_cmd(world_to_human_pos, world_to_human_rot)
+        US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        world_to_ee_target_pos, world_to_ee_target_rot = US_slicer.compute_world_ee_pose_from_cmd(world_to_human_pos, world_to_human_rot)
         world_to_ee_target_pose = torch.cat([world_to_ee_target_pos, world_to_ee_target_rot], dim=-1)
         
         base_to_ee_target_pos, base_to_ee_target_quat = subtract_frame_transforms(
