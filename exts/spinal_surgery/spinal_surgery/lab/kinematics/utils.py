@@ -34,7 +34,7 @@ def construct_lowest_y_array(label_map, label):
     return lowest_y_array
 
 
-def apply_gaussian_smoothing(tensor, kernel_size=11, sigma=5.0):
+def apply_gaussian_smoothing(tensor, kernel_size=15, sigma=10.0):
     """
     Apply Gaussian smoothing to a 3D tensor.
     
@@ -61,7 +61,7 @@ def apply_gaussian_smoothing(tensor, kernel_size=11, sigma=5.0):
     return smoothed_tensor.squeeze()
 
 
-def compute_boundary_normals(label_map, smoothing=True, kernel_size=11, sigma=5.0):
+def compute_boundary_normals(label_map, smoothing=True, kernel_size=15, sigma=10.0):
     """
     Compute the boundary normals for a 3D label map with optional smoothing.
     
@@ -147,3 +147,42 @@ def construct_boundary_normals_array(label_map, lowest_y_array, label, smoothing
     #                 normals_array[x, z] = torch.tensor([0.0, 1.0, 0.0], device=label_map.device)
 
     return normals_array
+
+
+def smooth_segmentation_labels(labels: torch.Tensor, num_classes: int, kernel_size: int = 3, sigma: float = 1.0):
+    """
+    Smooth boundaries of segmentation labels.
+    
+    Parameters:
+        labels (torch.Tensor): Input label tensor with shape [H, W] or [B, H, W].
+        num_classes (int): Total number of label classes.
+        kernel_size (int): Size of the Gaussian kernel.
+        sigma (float): Standard deviation for the Gaussian kernel.
+        
+    Returns:
+        torch.Tensor: Smoothed label tensor with shape [B, H, W] or [H, W].
+    """
+    # Ensure input is batch format
+    if labels.dim() == 2:
+        labels = labels.unsqueeze(0)  # Add batch dimension
+    
+    B, H, W = labels.shape
+    one_hot = F.one_hot(labels.to(torch.int64), num_classes).permute(0, 3, 1, 2).float()  # Shape: [B, num_classes, H, W]
+
+    # Create a Gaussian kernel
+    x = torch.arange(-kernel_size // 2 + 1, kernel_size // 2 + 1, device=labels.device)
+    gaussian = torch.exp(-x.pow(2) / (2 * sigma ** 2))
+    gaussian /= gaussian.sum()
+    gaussian_kernel = gaussian[:, None] @ gaussian[None, :]
+    gaussian_kernel = gaussian_kernel.expand(num_classes, 1, -1, -1).to(labels.device)
+
+    # Apply Gaussian smoothing
+    padding = kernel_size // 2
+    smoothed = F.conv2d(F.pad(one_hot, (padding, padding, padding, padding), mode='reflect'), 
+                        gaussian_kernel, 
+                        groups=num_classes)
+
+    # Get final labels by taking the argmax
+    smoothed_labels = torch.argmax(smoothed, dim=1)  # Shape: [B, H, W]
+    
+    return smoothed_labels.squeeze(0) if smoothed_labels.shape[0] == 1 else smoothed_labels

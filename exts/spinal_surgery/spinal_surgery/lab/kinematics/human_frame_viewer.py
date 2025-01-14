@@ -14,17 +14,18 @@ class HumanFrameViewer:
     # Function: slice label map
     # Function: update plotter
 
-    def __init__(self, label_maps, num_envs, device, visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
+    def __init__(self, label_maps, num_envs, device, label_res=0.0015, visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
         num_envs: number of environments
         plane_axes: dict of plane axes for imaging, in our case is 'x' and 'z' axes of the ee frame
         '''
         
-        self.label_maps = [torch.tensor(label_map, device=device) for label_map in label_maps]
+        self.label_maps = [torch.tensor(label_map, dtype=torch.uint8, device=device) for label_map in label_maps]
         self.num_envs = num_envs
         self.n_human_types = len(label_maps)
         self.plane_axes = plane_axes
+        self.label_res = label_res
 
         if visualize: 
             self.p_list = []
@@ -46,8 +47,8 @@ class HumanFrameViewer:
                 # create axis
                 w_axis = np.array(self.plane_axes['w'])
                 h_axis = np.array(self.plane_axes['h'])
-                ee_w_points = np.linspace(0.0, 0.05, 20).reshape((-1, 1)) * w_axis.reshape((1, -1))
-                ee_h_points = np.linspace(0.0, 0.05, 20).reshape((-1, 1)) * h_axis.reshape((1, -1))
+                ee_w_points = np.linspace(0.0, 0.05, 5).reshape((-1, 1)) * w_axis.reshape((1, -1))
+                ee_h_points = np.linspace(0.0, 0.05, 5).reshape((-1, 1)) * h_axis.reshape((1, -1))
                 w_axis_pv = pv.PolyData(ee_w_points)
                 h_axis_pv = pv.PolyData(ee_h_points)
                 
@@ -69,10 +70,10 @@ class HumanFrameViewer:
         '''
         w_axis = torch.tensor(self.plane_axes['w'], device=human_to_ee_pos.device)
         h_axis = torch.tensor(self.plane_axes['h'], device=human_to_ee_pos.device)
-        ee_w_points = torch.linspace(0.0, 50, 20, device=human_to_ee_pos.device).reshape((-1, 1)) * w_axis.reshape((1, -1))
-        ee_h_points = torch.linspace(0.0, 50, 20, device=human_to_ee_pos.device).reshape((-1, 1)) * h_axis.reshape((1, -1))
-        human_w_points = transform_points(ee_w_points, human_to_ee_pos * 1000, human_to_ee_quat)
-        human_h_points = transform_points(ee_h_points, human_to_ee_pos * 1000, human_to_ee_quat)
+        ee_w_points = torch.linspace(0.0, 5, 5, device=human_to_ee_pos.device).reshape((-1, 1)) * w_axis.reshape((1, -1))
+        ee_h_points = torch.linspace(0.0, 5, 5, device=human_to_ee_pos.device).reshape((-1, 1)) * h_axis.reshape((1, -1))
+        human_w_points = transform_points(ee_w_points, human_to_ee_pos / self.label_res, human_to_ee_quat)
+        human_h_points = transform_points(ee_h_points, human_to_ee_pos / self.label_res, human_to_ee_quat)
 
         return human_w_points, human_h_points # num_envs x 40 x 3
 

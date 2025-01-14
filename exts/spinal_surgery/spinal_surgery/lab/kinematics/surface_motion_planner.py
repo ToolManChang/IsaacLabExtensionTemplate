@@ -3,14 +3,15 @@ import torch
 import numpy as np
 from spinal_surgery.lab.kinematics.utils import *
 from omni.isaac.lab.utils.math import quat_from_matrix, combine_frame_transforms, transform_points
+import os
 
 
 class SurfaceMotionPlanner(HumanFrameViewer):
     # Class: surface motion planner
     # Function: __init__
     # Function: plan_motion
-    def __init__(self, label_maps, num_envs, x_z_range, init_x_z_x_angle, device, 
-                 body_label=120, height = 0.1,
+    def __init__(self, label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, 
+                 label_res=0.0015, body_label=120, height = 0.1, 
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
@@ -21,23 +22,34 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         of human frame [x, z, x_angle]
         height: height of ee above the surface
         '''
-        super().__init__(label_maps, num_envs, device, visualize, plane_axes)
+        super().__init__(label_maps, num_envs, device, label_res, visualize, plane_axes)
 
         self.x_z_range = x_z_range
         self.current_x_z_x_angle_cmd = torch.tensor(init_x_z_x_angle, device=device).repeat(num_envs, 1)
         self.device = device
         self.body_label = body_label
         self.height = height
+        self.human_list = human_list
 
         # construct surface map list X * Z: surface point at 2d postion
         self.surface_map_list = []
         for i in range(self.n_human_types):
-            surface_map = construct_lowest_y_array(self.label_maps[i], self.body_label)
+            lowest_y_array_path = human_list[i] + '/body_lowest_y_array.pt'
+            if os.path.exists(lowest_y_array_path):
+                surface_map = torch.load(lowest_y_array_path)
+            else:
+                surface_map = construct_lowest_y_array(self.label_maps[i], self.body_label)
+                torch.save(surface_map, lowest_y_array_path)
             self.surface_map_list.append(surface_map)
         # construct surface normal list X * Z * 3: surface normal at 2d postion
         self.surface_normal_list = [] 
         for i in range(self.n_human_types):
-            surface_normal = construct_boundary_normals_array(self.label_maps[i], self.surface_map_list[i], self.body_label)
+            surface_normal_array_path = human_list[i] + '/body_surface_normal_array.pt'
+            if os.path.exists(surface_normal_array_path):
+                surface_normal = torch.load(surface_normal_array_path)
+            else:
+                surface_normal = construct_boundary_normals_array(self.label_maps[i], self.surface_map_list[i], self.body_label)
+                torch.save(surface_normal, surface_normal_array_path)
             self.surface_normal_list.append(surface_normal)
 
 
@@ -69,7 +81,7 @@ class SurfaceMotionPlanner(HumanFrameViewer):
 
             # get human to ee position
             target_y = self.surface_map_list[i % self.n_human_types][cur_x.int(), cur_z.int()]
-            target_pos = torch.tensor([cur_x, target_y, cur_z], device=self.device) / 1000.0
+            target_pos = torch.tensor([cur_x, target_y, cur_z], device=self.device) * self.label_res
             target_pos_list.append(target_pos - target_z_axis * self.height)
 
         human_to_ee_target_quat = torch.stack(target_quat_list) # (num_envs, 4)

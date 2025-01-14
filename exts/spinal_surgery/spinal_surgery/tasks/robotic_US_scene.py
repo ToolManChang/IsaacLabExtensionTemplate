@@ -66,7 +66,7 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.1)
+    pos = (0.0, -0.75, 0.2)
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
@@ -81,16 +81,19 @@ INIT_STATE_BED = AssetBaseCfg.InitialStateCfg(
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
 
-usd_file_list = [
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0010/combined/combined.usd", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0014/combined/combined.usd",
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0015/combined/combined.usd",
+human_usd_list = [
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0010", 
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0014",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0015",
 ]
-label_map_file_list = [
-    f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0010/combined_label_map.nii.gz", 
-    f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014/combined_label_map.nii.gz",
-    f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015/combined_label_map.nii.gz",
+human_stl_list = [
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0010", 
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015",
 ]
+
+usd_file_list = [human_file + "/combined/combined.usd" for human_file in human_usd_list]
+label_map_file_list = [human_file + "/combined_label_map.nii.gz" for human_file in human_stl_list]
 
 @configclass
 class RobotSceneCfg(InteractiveSceneCfg):
@@ -171,9 +174,10 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     #     sim.device)
     label_img_slicer = LabelImgSlicer(
         label_map_list, 
+        human_stl_list,
         scene.num_envs, 
-        [[50, 50, 2.0], [150, 200, 4.0]], [100, 120, 3.14], 
-        sim.device, [150, 200], 0.0005
+        [[100, 100, 2.64], [200, 200, 3.64]], [150, 150, 3.14], 
+        sim.device, [150, 200], 0.0003
     )
 
     # Define simulation stepping
