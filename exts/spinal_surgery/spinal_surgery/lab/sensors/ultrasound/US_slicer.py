@@ -11,7 +11,7 @@ class USSlicer(LabelImgSlicer):
     # Function: update_plotter
     def __init__(self, us_cfg, label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_convert_map,
                  img_size, img_res, label_res=0.0015,
-                 body_label=120, height = 0.1, height_img = 0.105,
+                 body_label=120, height = 0.1, height_img = 0.101,
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
