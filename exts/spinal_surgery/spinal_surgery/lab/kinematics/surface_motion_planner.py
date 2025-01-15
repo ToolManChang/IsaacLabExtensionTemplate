@@ -74,7 +74,9 @@ class SurfaceMotionPlanner(HumanFrameViewer):
             target_z_axis = self.surface_normal_list[i % self.n_human_types][cur_x.int(), cur_z.int()]
             # target_z_axis = torch.tensor([0, 1.0, 0.0], dtype=torch.float32, device=self.device)
             target_y_axis = torch.cross(target_z_axis, target_x_axis_proj)
+            target_y_axis = target_y_axis / torch.norm(target_y_axis)
             target_x_axis = torch.cross(target_y_axis, target_z_axis)
+            target_x_axis = target_x_axis / torch.norm(target_x_axis)
             target_rot_mat = torch.stack([target_x_axis, target_y_axis, target_z_axis], dim=1)
             target_quat = quat_from_matrix(target_rot_mat)
             target_quat_list.append(target_quat)
@@ -83,6 +85,8 @@ class SurfaceMotionPlanner(HumanFrameViewer):
             target_y = self.surface_map_list[i % self.n_human_types][cur_x.int(), cur_z.int()]
             target_pos = torch.tensor([cur_x, target_y, cur_z], device=self.device) * self.label_res
             target_pos_list.append(target_pos - target_z_axis * self.height)
+
+        # vectorize
 
         human_to_ee_target_quat = torch.stack(target_quat_list) # (num_envs, 4)
         human_to_ee_target_pos = torch.stack(target_pos_list) # (num_envs, 3)
@@ -104,8 +108,4 @@ class SurfaceMotionPlanner(HumanFrameViewer):
                                                    torch.tensor(self.x_z_range[0], device=self.device),
                                                    torch.tensor(self.x_z_range[1], device=self.device))
         
-    def take_slice(self, human_to_ee_pos, human_to_ee_quat):
-        '''
-        human_to_ee_pos: (num_envs, 3)
-        human_to_ee_quat: (num_envs, 4)
-        '''
+    

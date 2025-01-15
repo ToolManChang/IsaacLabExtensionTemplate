@@ -65,6 +65,8 @@ class USSimulatorConv:
         self.PSF_B = self.compute_PSF_kernel(self.sx_B, self.sy_B)
         self.E_S_ratio = E_S_ratio
 
+        self.rand_param_map = torch.zeros((1, 1, 1, 3))
+
         pass
 
     
@@ -118,13 +120,17 @@ class USSimulatorConv:
         '''
         assign mu_0, mu1, sigma0 to T
         '''
-        rand_param_map = torch.zeros(label_img.shape + (3,))
-        for label in self.label_to_params_dict.keys():
-            rand_param_map[:, :, :, 0][label_img==label] = self.label_to_params_dict[label]['mu0']
-            rand_param_map[:, :, :, 1][label_img==label] = self.label_to_params_dict[label]['mu1']
-            rand_param_map[:, :, :, 2][label_img==label] = self.label_to_params_dict[label]['s0']
+        if not label_img.shape==self.rand_param_map.shape[:-1]:
+            self.rand_param_map = torch.zeros(label_img.shape + (3,))
+        labels = torch.unique(label_img)
+        for i in range(labels.shape[0]):
+            label = labels[i].item()
+            label_items = label_img==label
+            self.rand_param_map[:, :, :, 0][label_items] = self.label_to_params_dict[label]['mu0']
+            self.rand_param_map[:, :, :, 1][label_items] = self.label_to_params_dict[label]['mu1']
+            self.rand_param_map[:, :, :, 2][label_items] = self.label_to_params_dict[label]['s0']
 
-        return rand_param_map
+        return self.rand_param_map
 
     
 

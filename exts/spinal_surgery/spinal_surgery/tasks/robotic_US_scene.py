@@ -44,6 +44,7 @@ from omni.isaac.lab.actuators import ImplicitActuatorCfg
 from omni.isaac.lab.controllers import DifferentialIKController, DifferentialIKControllerCfg
 from omni.isaac.lab.managers import SceneEntityCfg
 import nibabel as nib
+import cProfile
 
 ##
 # Pre-defined configs
@@ -69,7 +70,7 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.2)
+    pos = (0.0, -0.75, 0.3)
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
@@ -186,20 +187,19 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         label_map_list, 
         human_stl_list,
         scene.num_envs, 
-        [[100, 100, 2.64], [200, 200, 3.64]], [150, 150, 3.14], 
+        [[100, 100, 1.5], [200, 200, 3.14]], [150, 150, 4.5], 
         sim.device, label_convert_map,
-        [150, 200], 0.0003
+        [150, 200], 0.0003, visualize=False
     )
 
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
     count = 0
     # Simulation loop
-    while simulation_app.is_running():
+    while simulation_app.is_running() and count < 500:
         # Reset
         if count % 500 == 0:
             # reset counter
-            count = 0
             # reset the scene entities
             # root state
             # we offset the root state by the origin since the states are written in simulation world frame
@@ -315,6 +315,6 @@ def main():
 
 if __name__ == "__main__":
     # run the main function
-    main()
+    cProfile.run('main()', 'main_stats')
     # close sim app
     simulation_app.close()

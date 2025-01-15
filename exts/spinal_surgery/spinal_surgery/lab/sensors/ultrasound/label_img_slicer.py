@@ -59,7 +59,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         human_to_ee_pos, human_to_ee_quat = subtract_frame_transforms(
             world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat) # (num_envs, 3), (num_envs, 4)
         human_to_ee_rot = matrix_from_quat(human_to_ee_quat) # (num_envs, 3, 3)
-        normal_drcts = human_to_ee_rot[:, 2]
+        normal_drcts = human_to_ee_rot[:, :, 2]
         prods = normal_drcts @ torch.tensor([0.0, 1.0, 0.0], device=self.device)
         normal_drcts[prods < 0, :] = -normal_drcts[prods < 0, :]
         human_to_img_pos = (human_to_ee_pos + self.height_img * normal_drcts) # (num_envs, 3)
