@@ -14,7 +14,7 @@ class HumanFrameViewer:
     # Function: slice label map
     # Function: update plotter
 
-    def __init__(self, label_maps, num_envs, device, label_res=0.0015, visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
+    def __init__(self, label_maps, num_envs, device, label_res=0.0015, height_img=0.1, visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
         num_envs: number of environments
@@ -26,6 +26,7 @@ class HumanFrameViewer:
         self.n_human_types = len(label_maps)
         self.plane_axes = plane_axes
         self.label_res = label_res
+        self.height_img = height_img
 
         if visualize: 
             self.p_list = []
@@ -47,8 +48,8 @@ class HumanFrameViewer:
                 # create axis
                 w_axis = np.array(self.plane_axes['w'])
                 h_axis = np.array(self.plane_axes['h'])
-                ee_w_points = np.linspace(0.0, 0.05, 5).reshape((-1, 1)) * w_axis.reshape((1, -1))
-                ee_h_points = np.linspace(0.0, 0.05, 5).reshape((-1, 1)) * h_axis.reshape((1, -1))
+                ee_w_points = np.linspace(0.0, 10, 5).reshape((-1, 1)) * w_axis.reshape((1, -1)) + height_img / self.label_res * h_axis.reshape((1, -1))
+                ee_h_points = (np.linspace(0.0, 10, 5).reshape((-1, 1)) + height_img / self.label_res) * h_axis.reshape((1, -1))
                 w_axis_pv = pv.PolyData(ee_w_points)
                 h_axis_pv = pv.PolyData(ee_h_points)
                 
@@ -70,8 +71,10 @@ class HumanFrameViewer:
         '''
         w_axis = torch.tensor(self.plane_axes['w'], device=human_to_ee_pos.device)
         h_axis = torch.tensor(self.plane_axes['h'], device=human_to_ee_pos.device)
-        ee_w_points = torch.linspace(0.0, 5, 5, device=human_to_ee_pos.device).reshape((-1, 1)) * w_axis.reshape((1, -1))
-        ee_h_points = torch.linspace(0.0, 5, 5, device=human_to_ee_pos.device).reshape((-1, 1)) * h_axis.reshape((1, -1))
+        ee_w_points = (torch.linspace(0.0, 10, 5, device=human_to_ee_pos.device).reshape((-1, 1)) * w_axis.reshape((1, -1))
+                       + self.height_img / self.label_res * h_axis.reshape((1, -1)))
+        ee_h_points = (torch.linspace(0.0, 10, 5, device=human_to_ee_pos.device).reshape((-1, 1)) 
+                       + self.height_img / self.label_res) * h_axis.reshape((1, -1))
         human_w_points = transform_points(ee_w_points, human_to_ee_pos / self.label_res, human_to_ee_quat)
         human_h_points = transform_points(ee_h_points, human_to_ee_pos / self.label_res, human_to_ee_quat)
 

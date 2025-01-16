@@ -11,7 +11,7 @@ class SurfaceMotionPlanner(HumanFrameViewer):
     # Function: __init__
     # Function: plan_motion
     def __init__(self, label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, 
-                 label_res=0.0015, body_label=120, height = 0.1, 
+                 label_res=0.0015, body_label=120, height = 0.1, height_img = 0.1,
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
@@ -22,7 +22,7 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         of human frame [x, z, x_angle]
         height: height of ee above the surface
         '''
-        super().__init__(label_maps, num_envs, device, label_res, visualize, plane_axes)
+        super().__init__(label_maps, num_envs, device, label_res, height_img, visualize, plane_axes)
 
         self.x_z_range = x_z_range
         self.current_x_z_x_angle_cmd = torch.tensor(init_x_z_x_angle, device=device).repeat(num_envs, 1)

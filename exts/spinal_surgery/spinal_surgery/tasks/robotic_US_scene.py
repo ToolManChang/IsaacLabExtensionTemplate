@@ -70,12 +70,12 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.3)
+    pos = (0.0, -0.75, 0.4)
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
 INIT_STATE_HUMAN = AssetBaseCfg.InitialStateCfg(
-    pos=((0.2, -0.4, 0.6)),
+    pos=((0.2, -0.4, 0.7)),
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
 
@@ -98,6 +98,9 @@ human_stl_list = [
 
 usd_file_list = [human_file + "/combined/combined.usd" for human_file in human_usd_list]
 label_map_file_list = [human_file + "/combined_label_map.nii.gz" for human_file in human_stl_list]
+
+label_res = 0.0015
+scale = 1/label_res
 
 @configclass
 class RobotSceneCfg(InteractiveSceneCfg):
@@ -146,7 +149,7 @@ class RobotSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.MultiUsdFileCfg(
         usd_path=usd_file_list,
         random_choice=False,
-        scale = (0.001, 0.001, 0.001),
+        scale = (label_res, label_res, label_res),
         ),
         init_state = INIT_STATE_HUMAN,
     )
@@ -189,14 +192,14 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         scene.num_envs, 
         [[100, 100, 1.5], [200, 200, 3.14]], [150, 150, 4.5], 
         sim.device, label_convert_map,
-        [150, 200], 0.0003, visualize=False
+        [100, 150], 0.0005, visualize=True
     )
 
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
     count = 0
     # Simulation loop
-    while simulation_app.is_running() and count < 500:
+    while simulation_app.is_running():
         # Reset
         if count % 500 == 0:
             # reset counter
@@ -256,7 +259,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         US_slicer.visualize()
         
         # compute frame in root frame
-        # US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
         world_to_ee_target_pos, world_to_ee_target_rot = US_slicer.compute_world_ee_pose_from_cmd(world_to_human_pos, world_to_human_rot)
         world_to_ee_target_pose = torch.cat([world_to_ee_target_pos, world_to_ee_target_rot], dim=-1)
         
@@ -298,7 +301,7 @@ def main():
     # Set main camera
     sim.set_camera_view([2.5, 0.0, 4.0], [0.0, 0.0, 2.0])
     # Design scene
-    scene_cfg = RobotSceneCfg(num_envs=args_cli.num_envs, env_spacing=5.0, replicate_physics=False)
+    scene_cfg = RobotSceneCfg(num_envs=args_cli.num_envs, env_spacing=4.0, replicate_physics=False)
     scene = InteractiveScene(scene_cfg)
     # load label maps
     label_map_list = []

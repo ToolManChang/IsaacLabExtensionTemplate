@@ -25,7 +25,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         img_size: size of the image [w, h]
         img_res: resolution of the image
         ''' 
-        super().__init__(label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_res, body_label, height, visualize, plane_axes)
+        super().__init__(label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_res, body_label, height, height_img, visualize, plane_axes)
         self.img_size = img_size
         self.img_res = img_res
         self.img_real_size = [img_size[0] * img_res, img_size[1] * img_res]

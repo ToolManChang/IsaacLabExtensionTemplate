@@ -126,9 +126,8 @@ class USSimulatorConv:
         for label in self.label_to_params_dict.keys():
             # label = labels[i].item()
             label_items = label_img==label
-            self.rand_param_map[:, :, :, 0][label_items] = self.label_to_params_dict[label]['mu0']
-            self.rand_param_map[:, :, :, 1][label_items] = self.label_to_params_dict[label]['mu1']
-            self.rand_param_map[:, :, :, 2][label_items] = self.label_to_params_dict[label]['s0']
+            params = torch.tensor([self.label_to_params_dict[label]['mu0'], self.label_to_params_dict[label]['mu1'], self.label_to_params_dict[label]['s0']])
+            self.rand_param_map[label_items, :] = params
 
         return self.rand_param_map
 
@@ -208,7 +207,7 @@ class USSimulatorConv:
         return n_map * TGC_map * self.n_I
     
 
-    def simulate_US_image(self, label_img: torch.Tensor):
+    def simulate_US_image(self, label_img: torch.Tensor, if_noise=True):
         '''
         img: (n, H. W)
         simulate us image based on label img
@@ -272,12 +271,10 @@ class USSimulatorConv:
         US = self.E_S_ratio * E_map + B_map
 
         # add noise
-        noise_map = self.generate_noise_map(label_img=label_img)
+        if if_noise:
+            noise_map = self.generate_noise_map(label_img=label_img)
 
-        # visualize_img(noise_map[0, : :].cpu().numpy(), True)
-        # visualize_img(US[0, : :].cpu().numpy(), True)
-
-        US = US + noise_map
+            US = US + noise_map
 
         return US
 

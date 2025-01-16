@@ -32,7 +32,7 @@ class USSlicer(LabelImgSlicer):
 
     def slice_US(self, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
         self.slice_label_img(world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat)
-        self.us_img_tensor = self.us_sim.simulate_US_image(self.label_img_tensor.permute(0, 2, 1))
+        self.us_img_tensor = self.us_sim.simulate_US_image(self.label_img_tensor.permute(0, 2, 1), False)
 
     def visualize(self, first_n=10):
         super().visualize(first_n)
@@ -42,7 +42,7 @@ class USSlicer(LabelImgSlicer):
 
         combined_img_np = combined_US_img.cpu().numpy()
 
-        cv2.imshow("US Image Update", combined_img_np.T / np.max(combined_img_np))
+        cv2.imshow("US Image Update", combined_img_np.T / 20)
         cv2.waitKey(1)
 
 
