@@ -58,17 +58,19 @@ def create_robot_usd_with_physics(output_path, link_usd_files):
         link_prim = stage.DefinePrim(link_path, "Xform")
         link_prim.GetReferences().AddReference(link_file)
         # UsdPhysics.CollisionAPI.Apply(link_prim).GetCollisionEnabledAttr().Set(False)
-
         
+
+        # add fix joint
         if idx==0:
-            # Add joints between links
-            joint_name = f"Joint_{last_link_name}_{link_name}"
-            joint_path = f"{root_path}/{joint_name}"
-            # Define the joint prim
-            joint_prim = UsdPhysics.FixedJoint.Define(stage, joint_path)
-            # Set parent and child links
-            parent_path = f"{root_path}"
-            child_path = f"{root_path}/{link_name}"
+            # # Add joints between links
+            # joint_name = f"Joint_{last_link_name}_{link_name}"
+            # joint_path = f"{root_path}/{joint_name}"
+            # # Define the joint prim
+            # joint_prim = UsdPhysics.FixedJoint.Define(stage, joint_path)
+            # # Set parent and child links
+            # parent_path = f"{root_path}"
+            # child_path = f"{root_path}/{link_name}"
+            pass
 
         else:
             
@@ -81,13 +83,14 @@ def create_robot_usd_with_physics(output_path, link_usd_files):
             parent_path = f"{root_path}/{last_link_name}"
             child_path = f"{root_path}/{link_name}"
 
-        joint_prim.CreateBody0Rel().SetTargets([parent_path])
-        joint_prim.CreateBody1Rel().SetTargets([child_path])
-        # Set the joint position
-        position = [0, 0, 0]  # Default position is at origin
-        UsdGeom.Xform(joint_prim.GetPrim()).AddTranslateOp().Set(Gf.Vec3f(*position))
-
+            joint_prim.CreateBody0Rel().SetTargets([parent_path])
+            joint_prim.CreateBody1Rel().SetTargets([child_path])
+            # Set the joint position
+            position = [0, 0, 0]  # Default position is at origin
+            UsdGeom.Xform(joint_prim.GetPrim()).AddTranslateOp().Set(Gf.Vec3f(*position))
+            
         last_link_name = link_name
+            
         
     # Save the USD stage
     UsdPhysics.ArticulationRootAPI.Apply(base_prim)
@@ -139,7 +142,7 @@ if __name__ == "__main__":
     output_usd_file = "/home/yunkao/git/IsaacLabExtensionTemplate/exts/spinal_surgery/spinal_surgery/assets/data/HumanModels/Totalsegmentator_dataset_v2_subset_usd/s0021/combined/combined.usd"
     
     # Joint configuration
-    root_path = '/home/yunkao/git/IsaacLabExtensionTemplate/exts/spinal_surgery/spinal_surgery/assets/data/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col'
+    root_path = '/home/yunkao/git/IsaacLabExtensionTemplate/exts/spinal_surgery/spinal_surgery/assets/data/HumanModels/Totalsegmentator_dataset_v2_subset_usd_mix'
 
     create_robot_usd_with_physics(output_usd_file, input_usd_files)
 

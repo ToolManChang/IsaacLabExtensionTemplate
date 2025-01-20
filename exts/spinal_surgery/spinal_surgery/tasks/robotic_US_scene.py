@@ -70,32 +70,31 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.4)
+    pos = (0.0, -0.8, 0.6) # ((0.0, -0.75, 0.4))
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
-INIT_STATE_HUMAN = AssetBaseCfg.InitialStateCfg(
-    pos=((0.2, -0.4, 0.7)),
+INIT_STATE_HUMAN = RigidObjectCfg.InitialStateCfg(
+    pos=((0.2, -0.4, 1.1)), # 0.7
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
 
 quat = R.from_euler("xyz", (90, 0, 90), degrees=True).as_quat()
 INIT_STATE_BED = AssetBaseCfg.InitialStateCfg(
-    pos=((0.0, 0.0, 0.0)),
+    pos=((0.0, 0.0, 0.3)),
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
 
 human_usd_list = [
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0010", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0014",
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0015",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_contact/s0010", 
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_contact/s0014",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_contact/s0015",
 ]
 human_stl_list = [
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0010", 
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014",
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015",
 ]
-
 usd_file_list = [human_file + "/combined/combined.usd" for human_file in human_usd_list]
 label_map_file_list = [human_file + "/combined_label_map.nii.gz" for human_file in human_stl_list]
 
@@ -144,15 +143,34 @@ class RobotSceneCfg(InteractiveSceneCfg):
     #     init_state = INIT_STATE_HUMAN
     # )
 
-    human = AssetBaseCfg(
+    human = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Human", 
         spawn=sim_utils.MultiUsdFileCfg(
         usd_path=usd_file_list,
         random_choice=False,
         scale = (label_res, label_res, label_res),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            disable_gravity=False,
+            retain_accelerations=False,
+            linear_damping=0.0,
+            angular_damping=0.0,
+            max_linear_velocity=1000.0,
+            max_angular_velocity=1000.0,
+            max_depenetration_velocity=1.0,
+        ),
         ),
         init_state = INIT_STATE_HUMAN,
     )
+
+    # human_collision = AssetBaseCfg(
+    #     prim_path="/World/envs/env_.*/Human_collision",
+    #     spawn=sim_utils.MultiUsdFileCfg(
+    #         usd_path=collision_file_list,
+    #         random_choice=False,
+    #         scale = (label_res, label_res, label_res),
+    #     ),
+    #     init_state = INIT_STATE_HUMAN
+    # )
 
 
 def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, label_map_list: list):
@@ -230,12 +248,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             pose_diff_ik_controller.set_command(ik_commands_pose, US_ee_pos_b, US_ee_quat_b)
 
             # get data from the human
-            human_root_state = human.get_default_state()
-            human_local_pose = human.get_local_poses()
-            human_world_poses = human.get_world_poses() # these are already the initial poses
-
-            # define world to human poses
-            world_to_human_pos, world_to_human_rot = human_root_state.positions, human_root_state.orientations
+            # human_root_state = human.get_default_state() # for assets
+            # human_local_pose = human.get_local_poses()
+            
 
             # then we can compute the relative poses and conduct simulations
 
@@ -246,6 +261,11 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
         rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
         US_slicer.update_cmd(rand_x_z_angle)
+
+        # get human frame
+        human_world_poses = human.data.root_state_w # these are already the initial poses
+        # define world to human poses
+        world_to_human_pos, world_to_human_rot = human_world_poses[:, 0:3], human_world_poses[:, 3:7]
 
         # update the view
         # get ee pose in wolrd frame
@@ -296,7 +316,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
 def main():
     """Main function."""
     # Load kit helper
-    sim_cfg = sim_utils.SimulationCfg(device=args_cli.device, gravity=[0.0, 0.0, 0.0])
+    sim_cfg = sim_utils.SimulationCfg(device=args_cli.device) # , gravity=[0.0, 0.0, 0.0]
     sim = SimulationContext(sim_cfg)
     # Set main camera
     sim.set_camera_view([2.5, 0.0, 4.0], [0.0, 0.0, 2.0])
