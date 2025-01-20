@@ -88,7 +88,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         
         return
     
-    def visualize(self, first_n=10):
+    def visualize(self, first_n=20):
         '''
         visualize label image by combine'''
         first_n = min(first_n, self.num_envs)

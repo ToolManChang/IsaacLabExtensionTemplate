@@ -32,9 +32,9 @@ class USSlicer(LabelImgSlicer):
 
     def slice_US(self, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
         self.slice_label_img(world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat)
-        self.us_img_tensor = self.us_sim.simulate_US_image(self.label_img_tensor.permute(0, 2, 1), False)
+        self.us_img_tensor = self.us_sim.simulate_US_image(self.label_img_tensor.permute(0, 2, 1), False) # (n, H, W)
 
-    def visualize(self, first_n=10):
+    def visualize(self, first_n=20):
         super().visualize(first_n)
         first_n = min(first_n, self.num_envs)
 
