@@ -70,12 +70,12 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.5) # ((0.0, -0.75, 0.4))
+    pos = (0.0, -0.75, 0.6) # ((0.0, -0.75, 0.4))
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
 INIT_STATE_HUMAN = RigidObjectCfg.InitialStateCfg(
-    pos=((0.2, -0.4, 1.1)), # 0.7
+    pos=((0.2, -0.45, 1.1)), # 0.7
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
 

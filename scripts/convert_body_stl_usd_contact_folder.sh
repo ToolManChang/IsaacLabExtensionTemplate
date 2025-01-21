@@ -29,7 +29,7 @@ find "$INPUT_ROOT" -type f | while read -r input_file; do
         
         # Run the Python script
         echo "Processing $input_file -> $output_file"
-        python3 "$PYTHON_SCRIPT" "$input_file" "$output_file" --make-instanceable --mass 0.1 --collision-approximation "convexDecomposition"
+        python3 "$PYTHON_SCRIPT" "$input_file" "$output_file" --make-instanceable --mass 50 --collision-approximation "convexDecomposition"
         
         # Check if the Python script executed successfully
         if [ $? -ne 0 ]; then
