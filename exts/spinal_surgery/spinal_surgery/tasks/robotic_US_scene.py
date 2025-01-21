@@ -70,7 +70,7 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.6) # ((0.0, -0.75, 0.4))
+    pos = (0.0, -0.75, 0.5) # ((0.0, -0.75, 0.4))
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
@@ -258,8 +258,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             scene.reset()
             print("[INFO]: Resetting robot state...")
         # Apply random action
-        rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 4.0 - 2.0
+        rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
         rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
+        # rand_x_z_angle = torch.zeros((scene.num_envs, 3), device=sim.device)
         US_slicer.update_cmd(rand_x_z_angle)
 
         # get human frame

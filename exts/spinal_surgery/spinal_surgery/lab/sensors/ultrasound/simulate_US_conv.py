@@ -34,13 +34,15 @@ class USSimulatorConv:
     '''
     def __init__(
         self,
-        us_cfg
+        us_cfg,
+        device,
     ) -> None:
         
         system_params=us_cfg["system_params"]
         label_to_params_dict=us_cfg["label_to_ac_params_dict"]
         kernel_size=tuple(us_cfg["kernel_size"])
         E_S_ratio=us_cfg["E_S_ratio"]
+        self.device = device
         
         self.f = system_params["frequency"]
         self.I0 = system_params["I0"]
@@ -79,11 +81,11 @@ class USSimulatorConv:
         '''
         get point spread function with kernel size
         '''
-        center = (torch.tensor(self.kernel_size)-1) / 2
+        center = (torch.tensor(self.kernel_size, device=self.device)-1) / 2
         print(center)
 
-        x_inds = torch.arange(0, self.kernel_size[0])
-        y_inds = torch.arange(0, self.kernel_size[1])
+        x_inds = torch.arange(0, self.kernel_size[0], device=self.device)
+        y_inds = torch.arange(0, self.kernel_size[1], device=self.device)
         x_grid, y_grid = torch.meshgrid(x_inds, y_inds)
 
         x = x_grid - center[0] # (W, H)
@@ -103,7 +105,7 @@ class USSimulatorConv:
         '''
         assign alpha to each pixel
         '''
-        alpha_map = torch.zeros(label_img.shape)
+        alpha_map = torch.zeros(label_img.shape, device=label_img.device)
         for label in self.label_to_params_dict.keys():
             alpha_map[label_img==label] = self.label_to_params_dict[label]['alpha'] - self.beta
 
@@ -114,7 +116,7 @@ class USSimulatorConv:
         '''
         assign impedance
         '''
-        z_map = torch.zeros(label_img.shape)
+        z_map = torch.zeros(label_img.shape, device=label_img.device)
         for label in self.label_to_params_dict.keys():
             z_map[label_img==label] = self.label_to_params_dict[label]['z']
 
@@ -126,18 +128,23 @@ class USSimulatorConv:
         assign mu_0, mu1, sigma0 to T
         '''
         if not label_img.shape==self.rand_param_map.shape[:-1]:
-            self.rand_param_map = torch.zeros(label_img.shape + (3,))
+            self.rand_param_map = torch.zeros(label_img.shape + (3,), device=label_img.device)
         if self.if_large_scale_speckle:
             if not label_img.shape==self.large_rand_param_map.shape[:-1]:
-                self.large_rand_param_map = torch.zeros(label_img.shape + (2,))
+                self.large_rand_param_map = torch.zeros(label_img.shape + (2,), device=label_img.device)
         # labels = torch.unique(label_img)
         for label in self.label_to_params_dict.keys():
             # label = labels[i].item()
             label_items = label_img==label
-            params = torch.tensor([self.label_to_params_dict[label]['mu0'], self.label_to_params_dict[label]['mu1'], self.label_to_params_dict[label]['s0']])
+            params = torch.tensor([
+                self.label_to_params_dict[label]['mu0'], 
+                self.label_to_params_dict[label]['mu1'], 
+                self.label_to_params_dict[label]['s0']], device=label_img.device)
             self.rand_param_map[label_items, :] = params
             if self.if_large_scale_speckle:
-                l_params = torch.tensor([self.label_to_params_dict[label]['Al'], self.label_to_params_dict[label]['fl']])
+                l_params = torch.tensor([
+                    self.label_to_params_dict[label]['Al'], 
+                    self.label_to_params_dict[label]['fl']], device=label_img.device)
                 self.large_rand_param_map[label_items, :] = l_params
 
 
@@ -160,7 +167,7 @@ class USSimulatorConv:
         Compute the edge between labels
         '''
 
-        edge_map = torch.zeros(label_img.shape)
+        edge_map = torch.zeros(label_img.shape, device=label_img.device)
         pad_img = F.pad(label_img, (1, 1, 1, 1), 'reflect')
 
         label_up = pad_img[:, :-2, 1:-1]
@@ -205,14 +212,14 @@ class USSimulatorConv:
         generate random noise that simulate the real US effects
         '''
         # generate random noise
-        r0_map = torch.normal(torch.zeros(label_img.shape), torch.ones(label_img.shape))
-        r1_map = torch.normal(torch.zeros(label_img.shape), torch.ones(label_img.shape))
+        r0_map = torch.normal(torch.zeros(label_img.shape, device=self.device), torch.ones(label_img.shape, device=self.device))
+        r1_map = torch.normal(torch.zeros(label_img.shape, device=self.device), torch.ones(label_img.shape, device=self.device))
         n_map = r0_map * self.n_s0 + self.n_mu0
         n_map_zero = torch.logical_not(r1_map <= self.n_mu1)
         n_map[n_map_zero] = 0
 
         # get TGC effect
-        beta_map = self.beta * torch.ones(label_img.shape)
+        beta_map = self.beta * torch.ones(label_img.shape, device=self.device)
         beta_l_map = torch.cumsum(beta_map, dim=1) * self.e
         TGC_map = torch.exp(beta_l_map * self.n_f)
 
@@ -286,6 +293,96 @@ class USSimulatorConv:
             inds_n, inds_h, inds_w = torch.meshgrid(torch.arange(0, label_img.shape[0]), 
                                   torch.arange(0, label_img.shape[1]), 
                                   torch.arange(0, label_img.shape[2]))
+            inds = torch.stack([inds_n, inds_h, inds_w], dim=-1) # (n, H, W, 3)
+            inds_lower = (inds / fl_map[:, :, :, None]).long()
+            S_map = S_map * (1 + Al_map * Vl_map[inds_lower[:, :, :, 0], inds_lower[:, :, :, 1], inds_lower[:, :, :, 2]])
+
+
+        S_map = S_map[:, None, :, :]
+        B_map = self.I0_map * atten_map * F.conv2d(S_map, self.PSF_B, padding='same')[:, 0, :, :]
+
+
+        US = self.E_S_ratio * E_map + B_map
+
+        # add noise
+        if if_noise:
+            noise_map = self.generate_noise_map(label_img=label_img)
+
+            US = US + noise_map
+
+        return US
+
+    def simulate_US_image_given_rand_map(self, 
+                                         label_img: torch.Tensor, 
+                                         T0_img: torch.Tensor, 
+                                         T1_img: torch.Tensor, 
+                                         Vl_img: torch.Tensor, 
+                                         if_noise=True):
+        '''
+        img: (n, H. W)
+        simulate us image based on label img
+        '''
+        # initial energy
+        self.I0_map = torch.ones(label_img.shape, device=label_img.device) * self.I0
+
+        # assign parameters
+        alpha_map = self.assign_alpha_map(label_img)
+        z_map = self.assign_impedance_map(label_img)
+        T_params_map = self.assign_T_params_map(label_img)
+
+        # visualize_img(alpha_map[0, :, :].cpu().numpy())
+        # visualize_img(z_map[0, :, :].cpu().numpy())
+        # visualize_img(T_params_map[0, :, :, 0].cpu().numpy())
+
+        # compute items
+        atten_map = self.compute_attenuation_map(alpha_map)
+        edge_map = self.compute_edge_map(label_img)
+
+        # visualize_img(atten_map[0, :, :].cpu().numpy())
+        # visualize_img(edge_map[0, :, :].cpu().numpy())
+
+        # compute angle map
+        edge_grad = self.compute_image_gradient(edge_map)
+        cos_map = self.compute_cos_map(edge_grad)
+        # cos_map[cos_map<0] = 0
+
+        # visualize_img(cos_map.cpu().numpy())
+        # visualize_img(self.PSF_kernel[0, 0, :, :].cpu().numpy())
+
+        # compute z difference
+        pad_z_map = F.pad(z_map, (1, 1, 1, 1), mode='reflect')
+        z2_map = z_map
+        z1_map = pad_z_map[:, :-2, 1:-1]
+
+        # visualize_img((edge_map * cos_map).cpu().numpy())
+        # visualize_img(((z1_map - z2_map)**2 / (z1_map + z2_map + 1e-5)**2).cpu().numpy())
+
+        # compute reflection term
+        E_map = self.I0_map * atten_map 
+        E_map = E_map * edge_map 
+        E_map = E_map * (z1_map - z2_map)**2 / (z1_map + z2_map + 1e-5)**2
+        E_map *= cos_map
+        E_map = E_map[:, None, :, :]
+        E_map = F.conv2d(input=E_map, weight=self.PSF_E, stride=1, padding='same')[:, 0, :, :]
+
+        # visualize_img(E_map.cpu().numpy(), True)
+
+
+        # construct random pattern:
+        T0_map = T0_img # (n, H, W)
+        T1_map = T1_img # (n, H, W)
+        S_map = T0_map * T_params_map[:, :, :, 2] + T_params_map[:, :, :, 0]
+        S_map_zero = torch.logical_not(T1_map <= T_params_map[:, :, :, 1])
+        S_map[S_map_zero] = 0
+
+        # consider large scale speckle
+        if self.if_large_scale_speckle:
+            Vl_map = Vl_img # (n, l, l)
+            Al_map = self.large_rand_param_map[:, :, :, 0] # (n, H, W)
+            fl_map = self.large_rand_param_map[:, :, :, 1] # (n, H, W)
+            inds_n, inds_h, inds_w = torch.meshgrid(torch.arange(0, label_img.shape[0], device=self.device), 
+                                  torch.arange(0, label_img.shape[1], device=self.device), 
+                                  torch.arange(0, label_img.shape[2], device=self.device))
             inds = torch.stack([inds_n, inds_h, inds_w], dim=-1) # (n, H, W, 3)
             inds_lower = (inds / fl_map[:, :, :, None]).long()
             S_map = S_map * (1 + Al_map * Vl_map[inds_lower[:, :, :, 0], inds_lower[:, :, :, 1], inds_lower[:, :, :, 2]])

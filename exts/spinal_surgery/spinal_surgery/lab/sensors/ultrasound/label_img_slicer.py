@@ -46,6 +46,25 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         self.img_coords = torch.stack([self.x_grid, self.y_grid, self.z_grid], dim=-1).reshape((-1, 3)).float() * img_res # (w * h, 3)
 
         return
+    
+    def get_human_img_coords(self, img_coords, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
+        human_to_ee_pos, human_to_ee_quat = subtract_frame_transforms(
+            world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat) # (num_envs, 3), (num_envs, 4)
+        human_to_ee_rot = matrix_from_quat(human_to_ee_quat) # (num_envs, 3, 3)
+        normal_drcts = human_to_ee_rot[:, :, 2]
+        prods = normal_drcts @ torch.tensor([0.0, 1.0, 0.0], device=self.device)
+        normal_drcts[prods < 0, :] = -normal_drcts[prods < 0, :]
+        human_to_img_pos = (human_to_ee_pos + self.height_img * normal_drcts) # (num_envs, 3)
+        # human_to_img_pos = human_to_img_pos - self.img_real_size[0] / 2 * human_to_ee_rot[:, 0] # (num_envs, 3)
+        human_img_coords = transform_points(img_coords, human_to_img_pos, human_to_ee_quat) # (num_envs, w*h, 3)
+        human_img_coords = human_img_coords / self.label_res # convert to pixel coords
+        # clamp the coords
+        human_img_coords = torch.clamp(
+            human_img_coords, 
+            torch.zeros_like(human_img_coords, device=self.device), 
+            max=torch.tensor(self.label_maps[0].shape, device=self.device).repeat(human_img_coords.shape[0], human_img_coords.shape[1], 1) - 1
+        )
+        return human_img_coords
 
 
     def slice_label_img(self, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
@@ -56,29 +75,18 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         world_to_ee_pos: (num_envs, 3)
         world_to_ee_quat: (num_envs, 4)
         '''
-        human_to_ee_pos, human_to_ee_quat = subtract_frame_transforms(
-            world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat) # (num_envs, 3), (num_envs, 4)
-        human_to_ee_rot = matrix_from_quat(human_to_ee_quat) # (num_envs, 3, 3)
-        normal_drcts = human_to_ee_rot[:, :, 2]
-        prods = normal_drcts @ torch.tensor([0.0, 1.0, 0.0], device=self.device)
-        normal_drcts[prods < 0, :] = -normal_drcts[prods < 0, :]
-        human_to_img_pos = (human_to_ee_pos + self.height_img * normal_drcts) # (num_envs, 3)
-        # human_to_img_pos = human_to_img_pos - self.img_real_size[0] / 2 * human_to_ee_rot[:, 0] # (num_envs, 3)
-        human_img_coords = transform_points(self.img_coords, human_to_img_pos, human_to_ee_quat) # (num_envs, w*h, 3)
-        human_img_coords = human_img_coords / self.label_res # convert to pixel coords
-        # clamp the coords
-        human_img_coords = torch.clamp(
-            human_img_coords, 
-            torch.zeros_like(human_img_coords, device=self.device), 
-            max=torch.tensor(self.label_maps[0].shape, device=self.device).repeat(human_img_coords.shape[0], human_img_coords.shape[1], 1) - 1
-        )
+        self.human_img_coords = self.get_human_img_coords(
+            self.img_coords,
+            world_to_human_pos, 
+            world_to_human_quat, 
+            world_to_ee_pos, world_to_ee_quat) # (num_envs, w*h, 3)
         
         # speed up the slicing
         for i in range(self.n_human_types):
             self.label_img_tensor[i::self.n_human_types, :, :] = self.label_maps[i % self.n_human_types][
-                human_img_coords[i::self.n_human_types, :, 0].int(), 
-                human_img_coords[i::self.n_human_types, :, 1].int(), 
-                human_img_coords[i::self.n_human_types, :, 2].int()
+                self.human_img_coords[i::self.n_human_types, :, 0].int(), 
+                self.human_img_coords[i::self.n_human_types, :, 1].int(), 
+                self.human_img_coords[i::self.n_human_types, :, 2].int()
             ].reshape((-1, self.img_size[0], self.img_size[1]))
 
         # self.label_img_list = [
