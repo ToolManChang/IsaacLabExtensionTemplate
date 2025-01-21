@@ -70,7 +70,7 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.8, 0.6) # ((0.0, -0.75, 0.4))
+    pos = (0.0, -0.75, 0.6) # ((0.0, -0.75, 0.4))
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
@@ -210,7 +210,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         scene.num_envs, 
         [[100, 100, 1.5], [200, 200, 3.14]], [150, 150, 4.5], 
         sim.device, label_convert_map,
-        [100, 150], 0.0005, visualize=True
+        [100, 150], 0.0005, visualize=False
     )
 
     # Define simulation stepping
@@ -258,7 +258,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             scene.reset()
             print("[INFO]: Resetting robot state...")
         # Apply random action
-        rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
+        rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 4.0 - 2.0
         rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
         US_slicer.update_cmd(rand_x_z_angle)
 
@@ -279,7 +279,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         US_slicer.visualize()
         
         # compute frame in root frame
-        US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        # US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
         world_to_ee_target_pos, world_to_ee_target_rot = US_slicer.compute_world_ee_pose_from_cmd(world_to_human_pos, world_to_human_rot)
         world_to_ee_target_pose = torch.cat([world_to_ee_target_pos, world_to_ee_target_rot], dim=-1)
         

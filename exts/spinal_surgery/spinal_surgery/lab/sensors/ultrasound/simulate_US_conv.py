@@ -65,6 +65,11 @@ class USSimulatorConv:
         self.PSF_B = self.compute_PSF_kernel(self.sx_B, self.sy_B)
         self.E_S_ratio = E_S_ratio
 
+        self.if_large_scale_speckle = us_cfg["large_scale_speckle"]
+        self.l_size = us_cfg["large_scale_resolution"]
+        if self.if_large_scale_speckle:
+            self.large_rand_param_map = torch.zeros((1, 1, 1, 3))
+
         self.rand_param_map = torch.zeros((1, 1, 1, 3))
 
         pass
@@ -122,12 +127,19 @@ class USSimulatorConv:
         '''
         if not label_img.shape==self.rand_param_map.shape[:-1]:
             self.rand_param_map = torch.zeros(label_img.shape + (3,))
+        if self.if_large_scale_speckle:
+            if not label_img.shape==self.large_rand_param_map.shape[:-1]:
+                self.large_rand_param_map = torch.zeros(label_img.shape + (2,))
         # labels = torch.unique(label_img)
         for label in self.label_to_params_dict.keys():
             # label = labels[i].item()
             label_items = label_img==label
             params = torch.tensor([self.label_to_params_dict[label]['mu0'], self.label_to_params_dict[label]['mu1'], self.label_to_params_dict[label]['s0']])
             self.rand_param_map[label_items, :] = params
+            if self.if_large_scale_speckle:
+                l_params = torch.tensor([self.label_to_params_dict[label]['Al'], self.label_to_params_dict[label]['fl']])
+                self.large_rand_param_map[label_items, :] = l_params
+
 
         return self.rand_param_map
 
@@ -264,6 +276,21 @@ class USSimulatorConv:
         S_map = T0_map * T_params_map[:, :, :, 2] + T_params_map[:, :, :, 0]
         S_map_zero = torch.logical_not(T1_map <= T_params_map[:, :, :, 1])
         S_map[S_map_zero] = 0
+
+        # consider large scale speckle
+        if self.if_large_scale_speckle:
+            Vl_map = torch.normal(torch.zeros((label_img.shape[0], self.l_size, self.l_size)), 
+                                  torch.ones((label_img.shape[0], self.l_size, self.l_size))) # (n, l, l)
+            Al_map = self.large_rand_param_map[:, :, :, 0] # (n, H, W)
+            fl_map = self.large_rand_param_map[:, :, :, 1] # (n, H, W)
+            inds_n, inds_h, inds_w = torch.meshgrid(torch.arange(0, label_img.shape[0]), 
+                                  torch.arange(0, label_img.shape[1]), 
+                                  torch.arange(0, label_img.shape[2]))
+            inds = torch.stack([inds_n, inds_h, inds_w], dim=-1) # (n, H, W, 3)
+            inds_lower = (inds / fl_map[:, :, :, None]).long()
+            S_map = S_map * (1 + Al_map * Vl_map[inds_lower[:, :, :, 0], inds_lower[:, :, :, 1], inds_lower[:, :, :, 2]])
+
+
         S_map = S_map[:, None, :, :]
         B_map = self.I0_map * atten_map * F.conv2d(S_map, self.PSF_B, padding='same')[:, 0, :, :]
 
