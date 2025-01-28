@@ -21,7 +21,7 @@ from omni.isaac.lab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on using the interactive scene interface.")
-parser.add_argument("--num_envs", type=int, default=100, help="Number of environments to spawn.")
+parser.add_argument("--num_envs", type=int, default=200, help="Number of environments to spawn.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -45,6 +45,7 @@ from omni.isaac.lab.controllers import DifferentialIKController, DifferentialIKC
 from omni.isaac.lab.managers import SceneEntityCfg
 import nibabel as nib
 import cProfile
+import time
 
 ##
 # Pre-defined configs
@@ -210,14 +211,14 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         scene.num_envs, 
         [[100, 100, 1.5], [200, 200, 3.14]], [150, 150, 4.5], 
         sim.device, label_convert_map,
-        [100, 150], 0.0005, visualize=False
+        [150, 200], 0.0004, visualize=False
     )
 
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
     count = 0
     # Simulation loop
-    while simulation_app.is_running():
+    while simulation_app.is_running() and count < 500:
         # Reset
         if count % 500 == 0:
             # reset counter
@@ -257,6 +258,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             # clear internal buffers
             scene.reset()
             print("[INFO]: Resetting robot state...")
+
+        start = time.time()
         # Apply random action
         rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
         rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
@@ -313,6 +316,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         # Update buffers
         scene.update(sim_dt)
 
+        end = time.time()
+        print(f"Time taken for step: {end - start}")
+
 
 def main():
     """Main function."""
@@ -339,6 +345,11 @@ def main():
 
 if __name__ == "__main__":
     # run the main function
-    cProfile.run('main()', 'main_stats')
+    profiler = cProfile.Profile()
+    profiler.enable()
+    main()
+    profiler.disable()
+    profiler.dump_stats("main_stats.prof")
+
     # close sim app
     simulation_app.close()

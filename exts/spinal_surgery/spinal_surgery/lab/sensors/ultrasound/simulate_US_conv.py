@@ -232,7 +232,7 @@ class USSimulatorConv:
         simulate us image based on label img
         '''
         # initial energy
-        self.I0_map = torch.ones(label_img.shape) * self.I0
+        self.I0_map = torch.ones(label_img.shape, device=self.device) * self.I0
 
         # assign parameters
         alpha_map = self.assign_alpha_map(label_img)
@@ -278,21 +278,21 @@ class USSimulatorConv:
 
 
         # construct random pattern:
-        T0_map = torch.normal(torch.zeros(label_img.shape), torch.ones(label_img.shape))
-        T1_map = torch.normal(torch.zeros(label_img.shape), torch.ones(label_img.shape))
+        T0_map = torch.normal(torch.zeros(label_img.shape,device=self.device), torch.ones(label_img.shape,device=self.device))
+        T1_map = torch.normal(torch.zeros(label_img.shape, device=self.device), torch.ones(label_img.shape, device=self.device))
         S_map = T0_map * T_params_map[:, :, :, 2] + T_params_map[:, :, :, 0]
         S_map_zero = torch.logical_not(T1_map <= T_params_map[:, :, :, 1])
         S_map[S_map_zero] = 0
 
         # consider large scale speckle
         if self.if_large_scale_speckle:
-            Vl_map = torch.normal(torch.zeros((label_img.shape[0], self.l_size, self.l_size)), 
-                                  torch.ones((label_img.shape[0], self.l_size, self.l_size))) # (n, l, l)
+            Vl_map = torch.normal(torch.zeros((label_img.shape[0], self.l_size, self.l_size), device=self.device), 
+                                  torch.ones((label_img.shape[0], self.l_size, self.l_size), device=self.device)) # (n, l, l)
             Al_map = self.large_rand_param_map[:, :, :, 0] # (n, H, W)
             fl_map = self.large_rand_param_map[:, :, :, 1] # (n, H, W)
-            inds_n, inds_h, inds_w = torch.meshgrid(torch.arange(0, label_img.shape[0]), 
-                                  torch.arange(0, label_img.shape[1]), 
-                                  torch.arange(0, label_img.shape[2]))
+            inds_n, inds_h, inds_w = torch.meshgrid(torch.arange(0, label_img.shape[0], device=self.device), 
+                                  torch.arange(0, label_img.shape[1], device=self.device), 
+                                  torch.arange(0, label_img.shape[2], device=self.device))
             inds = torch.stack([inds_n, inds_h, inds_w], dim=-1) # (n, H, W, 3)
             inds_lower = (inds / fl_map[:, :, :, None]).long()
             S_map = S_map * (1 + Al_map * Vl_map[inds_lower[:, :, :, 0], inds_lower[:, :, :, 1], inds_lower[:, :, :, 2]])
