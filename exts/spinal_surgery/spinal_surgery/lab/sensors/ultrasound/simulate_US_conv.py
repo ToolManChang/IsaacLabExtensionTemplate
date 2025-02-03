@@ -61,6 +61,15 @@ class USSimulatorConv:
 
         # self.f, self.I0, self.e, self.sx_E, self.sy_E, self.sx_B, self.sy_B, self.beta = system_params
         self.label_to_params_dict = label_to_params_dict
+        for key, item in self.label_to_params_dict.items():
+            self.label_to_params_dict[key] = torch.tensor([
+                item['alpha'], 
+                item['z'], 
+                item['mu0'], 
+                item['mu1'], 
+                item['s0'],
+                item['Al'],
+                item['fl']], device=self.device)
         self.kernel_size = kernel_size
 
         self.PSF_E = self.compute_PSF_kernel(self.sx_E, self.sy_E)
@@ -72,7 +81,7 @@ class USSimulatorConv:
         if self.if_large_scale_speckle:
             self.large_rand_param_map = torch.zeros((1, 1, 1, 3))
 
-        self.rand_param_map = torch.zeros((1, 1, 1, 3))
+        self.param_map = torch.zeros((1, 1, 1, 3))
 
         pass
 
@@ -105,22 +114,22 @@ class USSimulatorConv:
         '''
         assign alpha to each pixel
         '''
-        alpha_map = torch.zeros(label_img.shape, device=label_img.device)
+        self.alpha_map = torch.zeros(label_img.shape, device=label_img.device)
         for label in self.label_to_params_dict.keys():
-            alpha_map[label_img==label] = self.label_to_params_dict[label]['alpha'] - self.beta
+            self.alpha_map[label_img==label] = self.label_to_params_dict[label][0] - self.beta
 
-        return alpha_map
+        return self.alpha_map
 
 
     def assign_impedance_map(self, label_img: torch.Tensor):
         '''
         assign impedance
         '''
-        z_map = torch.zeros(label_img.shape, device=label_img.device)
+        self.z_map = torch.zeros(label_img.shape, device=label_img.device)
         for label in self.label_to_params_dict.keys():
-            z_map[label_img==label] = self.label_to_params_dict[label]['z']
+            self.z_map[label_img==label] = self.label_to_params_dict[label][1]
 
-        return z_map
+        return self.z_map
     
 
     def assign_T_params_map(self, label_img: torch.Tensor):
@@ -132,24 +141,31 @@ class USSimulatorConv:
         if self.if_large_scale_speckle:
             if not label_img.shape==self.large_rand_param_map.shape[:-1]:
                 self.large_rand_param_map = torch.zeros(label_img.shape + (2,), device=label_img.device)
-        # labels = torch.unique(label_img)
-        for label in self.label_to_params_dict.keys():
-            # label = labels[i].item()
+        labels = torch.unique(label_img)
+        for i in range(labels.shape[0]):
+            label = labels[i].item()
             label_items = label_img==label
-            params = torch.tensor([
-                self.label_to_params_dict[label]['mu0'], 
-                self.label_to_params_dict[label]['mu1'], 
-                self.label_to_params_dict[label]['s0']], device=label_img.device)
-            self.rand_param_map[label_items, :] = params
+            self.rand_param_map[label_items, :] = self.label_to_params_dict[label][2:5]
             if self.if_large_scale_speckle:
-                l_params = torch.tensor([
-                    self.label_to_params_dict[label]['Al'], 
-                    self.label_to_params_dict[label]['fl']], device=label_img.device)
-                self.large_rand_param_map[label_items, :] = l_params
+                self.large_rand_param_map[label_items, :] = self.label_to_params_dict[label][5:7]
 
 
         return self.rand_param_map
 
+
+    def assign_params_map(self, label_img: torch.Tensor):
+        '''
+        assign all parameters to each pixel
+        '''
+        if not label_img.shape==self.param_map.shape[:-1]:
+            self.param_map = torch.zeros(label_img.shape + (7,), device=label_img.device)
+        labels = torch.unique(label_img)
+        for i in range(labels.shape[0]):
+            label = labels[i].item()
+            label_items = label_img==label
+            self.param_map[label_items, :] = self.label_to_params_dict[label][:]
+            
+        return self.param_map
     
 
     def compute_attenuation_map(self, alpha_map: torch.Tensor):
@@ -235,9 +251,10 @@ class USSimulatorConv:
         self.I0_map = torch.ones(label_img.shape, device=self.device) * self.I0
 
         # assign parameters
-        alpha_map = self.assign_alpha_map(label_img)
-        z_map = self.assign_impedance_map(label_img)
-        T_params_map = self.assign_T_params_map(label_img)
+        params_map = self.assign_params_map(label_img)
+        alpha_map = params_map[:, :, :, 0]
+        z_map = params_map[:, :, :, 1]
+        T_params_map = params_map[:, :, :, 2:5]
 
         # visualize_img(alpha_map[0, :, :].cpu().numpy())
         # visualize_img(z_map[0, :, :].cpu().numpy())
@@ -286,6 +303,7 @@ class USSimulatorConv:
 
         # consider large scale speckle
         if self.if_large_scale_speckle:
+            self.large_rand_param_map = params_map[:, :, :, 5:7]
             Vl_map = torch.normal(torch.zeros((label_img.shape[0], self.l_size, self.l_size), device=self.device), 
                                   torch.ones((label_img.shape[0], self.l_size, self.l_size), device=self.device)) # (n, l, l)
             Al_map = self.large_rand_param_map[:, :, :, 0] # (n, H, W)
@@ -326,9 +344,10 @@ class USSimulatorConv:
         self.I0_map = torch.ones(label_img.shape, device=label_img.device) * self.I0
 
         # assign parameters
-        alpha_map = self.assign_alpha_map(label_img)
-        z_map = self.assign_impedance_map(label_img)
-        T_params_map = self.assign_T_params_map(label_img)
+        params_map = self.assign_params_map(label_img)
+        alpha_map = params_map[:, :, :, 0] - self.beta
+        z_map = params_map[:, :, :, 1]
+        T_params_map = params_map[:, :, :, 2:5]
 
         # visualize_img(alpha_map[0, :, :].cpu().numpy())
         # visualize_img(z_map[0, :, :].cpu().numpy())
@@ -378,6 +397,7 @@ class USSimulatorConv:
         # consider large scale speckle
         if self.if_large_scale_speckle:
             Vl_map = Vl_img # (n, l, l)
+            self.large_rand_param_map = params_map[:, :, :, 5:7]
             Al_map = self.large_rand_param_map[:, :, :, 0] # (n, H, W)
             fl_map = self.large_rand_param_map[:, :, :, 1] # (n, H, W)
             inds_n, inds_h, inds_w = torch.meshgrid(torch.arange(0, label_img.shape[0], device=self.device), 
