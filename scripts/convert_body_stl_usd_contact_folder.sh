@@ -18,7 +18,7 @@ mkdir -p "$OUTPUT_ROOT"
 # Process each file recursively
 find "$INPUT_ROOT" -type f | while read -r input_file; do
 
-    if [ "$(basename "$input_file")" = "combined.stl" ]; then
+    if [ "$(basename "$input_file")" = "combined_wrapwrap.stl" ]; then
         relative_path="${input_file#$INPUT_ROOT/}"
         output_base="${OUTPUT_ROOT}/${relative_path%.*}"
         output_subdir="${output_base}"

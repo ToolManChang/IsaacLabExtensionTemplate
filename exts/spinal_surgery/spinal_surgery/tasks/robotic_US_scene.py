@@ -21,7 +21,7 @@ from omni.isaac.lab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Tutorial on using the interactive scene interface.")
-parser.add_argument("--num_envs", type=int, default=200, help="Number of environments to spawn.")
+parser.add_argument("--num_envs", type=int, default=100, help="Number of environments to spawn.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -96,7 +96,7 @@ human_stl_list = [
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014",
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015",
 ]
-usd_file_list = [human_file + "/combined/combined.usd" for human_file in human_usd_list]
+usd_file_list = [human_file + "/combined_wrapwrap/combined_wrapwrap.usd" for human_file in human_usd_list]
 label_map_file_list = [human_file + "/combined_label_map.nii.gz" for human_file in human_stl_list]
 
 label_res = 0.0015
@@ -280,7 +280,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         )
         # update image simulation
         US_slicer.slice_US(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
-        US_slicer.visualize()
+        # US_slicer.visualize()
         
         # compute frame in root frame
         # US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
