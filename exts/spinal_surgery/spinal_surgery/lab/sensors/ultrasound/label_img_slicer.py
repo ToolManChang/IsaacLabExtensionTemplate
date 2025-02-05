@@ -12,7 +12,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
     # Function: slice_label_img
     # Function: update_plotter
     def __init__(self, label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_convert_map,
-                 img_size, img_res, label_res=0.0015,
+                 img_size, img_res, label_res=0.0015, max_distance=0.015, # [m]
                  body_label=120, height = 0.1, height_img = 0.1,
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
@@ -28,6 +28,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         super().__init__(label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_res, body_label, height, height_img, visualize, plane_axes)
         self.img_size = img_size
         self.img_res = img_res
+        self.max_distance = max_distance
         self.img_real_size = [img_size[0] * img_res, img_size[1] * img_res]
         self.height_img = height_img
         for i in range(self.n_human_types):
@@ -93,8 +94,27 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         #     self.label_maps[i % self.n_human_types][human_img_coords[i, :, 0].long(), human_img_coords[i, :, 1].long(), human_img_coords[i, :, 2].long()].reshape((self.img_size[0], self.img_size[1])) 
         #     for i in range(self.num_envs)]
         # smooth
+        self.check_collision(self.label_img_tensor)
         
         return
+    
+    def get_distances_from_label_img(self, label_img_tensor):
+        '''
+        get distances from label image tensor (N, W, H)
+        '''
+        B, W, H = label_img_tensor.shape
+
+        # Find the first nonzero index along the height dimension (axis=1)
+        first_nonzero = torch.argmax((label_img_tensor > 0).int(), dim=2) # (N, W)
+        return torch.min(first_nonzero, dim=1).values # (N, )
+
+    def check_collision(self, label_img_tensor):
+        '''
+        check collision
+        '''
+        first_nonzero = self.get_distances_from_label_img(label_img_tensor)
+        no_collide = first_nonzero > self.max_distance / self.label_res
+        label_img_tensor[no_collide] = 0
     
     def visualize(self, first_n=20):
         '''
