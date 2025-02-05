@@ -46,6 +46,10 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         self.y_grid = torch.zeros_like(self.x_grid, device=self.device)
         self.img_coords = torch.stack([self.x_grid, self.y_grid, self.z_grid], dim=-1).reshape((-1, 3)).float() * img_res # (w * h, 3)
 
+        # smoothing
+        self.kernel = self.gaussian_kernel()
+        
+
         return
     
     def get_human_img_coords(self, img_coords, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
@@ -95,6 +99,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         #     for i in range(self.num_envs)]
         # smooth
         self.check_collision(self.label_img_tensor)
+        self.label_img_tensor = self.bilateral_filter_pytorch(self.label_img_tensor.unsqueeze(1)).squeeze(1)
         
         return
     
@@ -115,6 +120,59 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         first_nonzero = self.get_distances_from_label_img(label_img_tensor)
         no_collide = first_nonzero > self.max_distance / self.label_res
         label_img_tensor[no_collide] = 0
+
+
+    # def morphological_smoothing(self, seg_tensor, kernel_size=11):
+    #     """Performs morphological closing (dilation + erosion) for multi-class segmentation maps."""
+    #     device = seg_tensor.device
+    #     unique_labels = torch.flip(torch.unique(seg_tensor), dims=(0,))  # Get all unique class labels
+
+    #     smoothed_seg = torch.zeros_like(seg_tensor)  # Placeholder for the smoothed output
+
+    #     kernel = torch.ones((1, 1, kernel_size, kernel_size), dtype=torch.float32, device=device)
+
+    #     for label in unique_labels:
+    #         if label == 0:  # Skip background if needed
+    #             continue
+
+    #         mask = (seg_tensor == label).float()  # Binary mask for the class
+
+    #         # Dilation → Expands regions
+    #         dilated = F.conv2d(mask, kernel, padding=kernel_size // 2) > 0
+
+    #         # Erosion → Shrinks back
+    #         smoothed = F.conv2d(dilated.float(), kernel, padding=kernel_size // 2) == kernel.numel()
+
+    #         smoothed_seg[smoothed] = label  # Assign label back to the smoothed mask
+
+    #     return smoothed_seg
+    
+    def gaussian_kernel(self, size=9, sigma=5.0):
+        """Generates a 2D Gaussian kernel for edge smoothing."""
+        x = torch.arange(size).float() - size // 2
+        y = x[:, None]
+        kernel = torch.exp(-(x**2 + y**2) / (2 * sigma**2))
+        kernel /= kernel.sum()
+        kernel = kernel.view(1, 1, size, size).to(self.device)
+        return kernel
+    
+    def bilateral_filter_pytorch(self, seg_tensor):
+        """Applies bilateral filtering to smooth segmentation edges while preserving labels."""
+        unique_labels = torch.unique(seg_tensor)
+        smoothed_seg = seg_tensor
+        
+        smoothed = F.conv2d(seg_tensor.float(), self.kernel, padding=self.kernel.shape[-1]//2, groups=1)
+
+        for label in unique_labels:
+            if label == 0:
+                continue
+
+            mask = (seg_tensor == label).float()
+            smoothed = F.conv2d(mask, self.kernel, padding=self.kernel.shape[-1] // 2, groups=1)
+            smoothed_seg[smoothed > 0.5] = label
+
+        return smoothed_seg
+    
     
     def visualize(self, first_n=20):
         '''
