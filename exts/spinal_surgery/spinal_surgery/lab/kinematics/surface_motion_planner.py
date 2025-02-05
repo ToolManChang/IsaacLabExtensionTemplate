@@ -2,8 +2,55 @@ from spinal_surgery.lab.kinematics.human_frame_viewer import HumanFrameViewer
 import torch
 import numpy as np
 from spinal_surgery.lab.kinematics.utils import *
-from omni.isaac.lab.utils.math import quat_from_matrix, combine_frame_transforms, transform_points
+from omni.isaac.lab.utils.math import combine_frame_transforms, transform_points, quat_from_matrix
 import os
+import time
+
+def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
+    """Vectorized version using torch.where for efficiency."""
+    return torch.where(x > 0, torch.sqrt(x), torch.zeros_like(x))
+
+@torch.jit.script
+def quat_from_matrix_optimize(matrix: torch.Tensor) -> torch.Tensor:
+    """Convert rotation matrices to quaternions with optimized operations."""
+    if matrix.shape[-2:] != (3, 3):
+        raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
+
+    batch_dim = matrix.shape[:-2]
+    m00, m01, m02 = matrix[..., 0, 0], matrix[..., 0, 1], matrix[..., 0, 2]
+    m10, m11, m12 = matrix[..., 1, 0], matrix[..., 1, 1], matrix[..., 1, 2]
+    m20, m21, m22 = matrix[..., 2, 0], matrix[..., 2, 1], matrix[..., 2, 2]
+    
+    q_abs = _sqrt_positive_part(
+        torch.stack(
+            [
+                1.0 + m00 + m11 + m22,
+                1.0 + m00 - m11 - m22,
+                1.0 - m00 + m11 - m22,
+                1.0 - m00 - m11 + m22,
+            ],
+            dim=-1,
+        )
+    )
+
+    quat_by_rijk = torch.stack(
+        [
+            torch.stack([q_abs[..., 0] ** 2, m21 - m12, m02 - m20, m10 - m01], dim=-1),
+            torch.stack([m21 - m12, q_abs[..., 1] ** 2, m10 + m01, m02 + m20], dim=-1),
+            torch.stack([m02 - m20, m10 + m01, q_abs[..., 2] ** 2, m12 + m21], dim=-1),
+            torch.stack([m10 - m01, m20 + m02, m21 + m12, q_abs[..., 3] ** 2], dim=-1),
+        ],
+        dim=-2,
+    )
+
+    # Use torch.clamp for stability
+    quat_candidates = quat_by_rijk / (2.0 * torch.clamp(q_abs[..., None], min=0.1)) # (B, 4, 4)
+    argmax = q_abs.argmax(dim=-1)
+
+    selected_quat = torch.gather(quat_candidates, dim=1, index=argmax[:, None, None].expand(-1, 1, 4)).squeeze(1)
+
+    # Efficient one-hot indexing
+    return selected_quat
 
 
 class SurfaceMotionPlanner(HumanFrameViewer):
@@ -50,6 +97,9 @@ class SurfaceMotionPlanner(HumanFrameViewer):
             else:
                 surface_normal = construct_boundary_normals_array(self.label_maps[i], self.surface_map_list[i], self.body_label)
                 torch.save(surface_normal, surface_normal_array_path)
+
+            surface_normal_norms = torch.linalg.norm(surface_normal, dim=-1)
+            surface_normal /= surface_normal_norms.unsqueeze(-1)
             self.surface_normal_list.append(surface_normal)
 
 
@@ -59,39 +109,11 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         world_to_human_pos: (num_envs, 3)
         world_to_human_rot: (num_envs, 4)
         '''
-        
-        # target_quat_list = []
-        # target_pos_list = []
-        # # compute z axis
-        # for i in range(self.num_envs):
-        #     cur_x = self.current_x_z_x_angle_cmd[i, 0]
-        #     cur_z = self.current_x_z_x_angle_cmd[i, 1]
-        #     # human to ee rotation
-        #     target_x_axis_proj = torch.tensor(
-        #         [torch.cos(self.current_x_z_x_angle_cmd[i,2]), 
-        #         0, 
-        #         torch.sin(self.current_x_z_x_angle_cmd[i, 2])], device=self.device)
-        #     target_z_axis = self.surface_normal_list[i % self.n_human_types][cur_x.int(), cur_z.int()]
-        #     # target_z_axis = torch.tensor([0, 1.0, 0.0], dtype=torch.float32, device=self.device)
-        #     target_y_axis = torch.cross(target_z_axis, target_x_axis_proj)
-        #     target_y_axis = target_y_axis / torch.norm(target_y_axis)
-        #     target_x_axis = torch.cross(target_y_axis, target_z_axis)
-        #     target_x_axis = target_x_axis / torch.norm(target_x_axis)
-        #     target_rot_mat = torch.stack([target_x_axis, target_y_axis, target_z_axis], dim=1)
-        #     target_quat = quat_from_matrix(target_rot_mat)
-        #     target_quat_list.append(target_quat)
-
-        #     # get human to ee position
-        #     target_y = self.surface_map_list[i % self.n_human_types][cur_x.int(), cur_z.int()]
-        #     target_pos = torch.tensor([cur_x, target_y, cur_z], device=self.device) * self.label_res
-        #     target_pos_list.append(target_pos - target_z_axis * self.height)
-        
-        # human_to_ee_target_quat = torch.stack(target_quat_list) # (num_envs, 4)
-        # human_to_ee_target_pos = torch.stack(target_pos_list) # (num_envs, 3)
 
         # vectorize
         human_to_ee_target_pos = torch.zeros((self.num_envs, 3), device=self.device)
         human_to_ee_target_quat = torch.zeros((self.num_envs, 4), device=self.device)
+        
         for i in range(self.n_human_types):
             cur_x = self.current_x_z_x_angle_cmd[i::self.n_human_types, 0] # (num_envs / n, 3)
             cur_z = self.current_x_z_x_angle_cmd[i::self.n_human_types, 1] # (num_envs / n, 3)
@@ -101,10 +123,10 @@ class SurfaceMotionPlanner(HumanFrameViewer):
                 torch.sin(self.current_x_z_x_angle_cmd[i::self.n_human_types, 2])], dim=-1) # (num_envs / n, 3)
             target_z_axis = self.surface_normal_list[i][cur_x.int(), cur_z.int()] # (num_envs / n, 3)
             target_y_axis = torch.cross(target_z_axis, target_x_axis_proj, dim=-1) # (num_envs / n, 3)
-            target_y_axis = target_y_axis / torch.linalg.norm(target_y_axis, dim=-1, keepdim=True)
+            # target_y_axis = target_y_axis / torch.linalg.norm(target_y_axis, dim=-1, keepdim=True)
             target_x_axis = torch.cross(target_y_axis, target_z_axis, dim=-1)
             target_rot_mat = torch.stack([target_x_axis, target_y_axis, target_z_axis], dim=-1) # (num_envs / n, 3, 3)
-            target_quat = quat_from_matrix(target_rot_mat) # (num_envs / n, 4)
+            target_quat = quat_from_matrix_optimize(target_rot_mat) # (num_envs / n, 4)
             # rotation
             human_to_ee_target_quat[i::self.n_human_types] = target_quat
             # position

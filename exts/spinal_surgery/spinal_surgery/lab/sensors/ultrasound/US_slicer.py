@@ -55,6 +55,11 @@ class USSlicer(LabelImgSlicer):
         # T0, T1: res: img_res, Vl: res: label_res
         # init position of random map
         # create position list
+        # env to human
+        self.env_to_human_inds = torch.arange(self.num_envs, device=self.device) % self.n_human_types # (N,)
+        self.env_to_human_inds_aug = self.env_to_human_inds.reshape((-1, 1)).repeat(1, self.img_size[0]*self.img_size[1]) # (N, H, W)
+        
+
         self.T_rand_frame_poses = []
         x_z_range_tensor = torch.tensor(self.x_z_range, device=self.device)
         xz_middle = x_z_range_tensor.mean(dim=0)[0:2]
@@ -66,6 +71,10 @@ class USSlicer(LabelImgSlicer):
             T_rand_frame_pos -= max(self.img_real_size) * 0.5
             self.T_rand_frame_poses.append(T_rand_frame_pos)
 
+        self.T_rand_frame_poses = torch.stack(self.T_rand_frame_poses, dim=0) # (n, 3)
+        self.T_rand_frame_poses_aug = self.T_rand_frame_poses[self.env_to_human_inds, :] # (num_envs, 3)
+        self.T_rand_frame_poses_aug = self.T_rand_frame_poses_aug.reshape((-1, 1, 3))
+
         size_xz = (x_z_range_tensor[1, 0:2] - x_z_range_tensor[0, 0:2]) * self.label_res / self.img_res
         size_xz += max(self.img_size)
         size_xz = size_xz.int()
@@ -76,12 +85,16 @@ class USSlicer(LabelImgSlicer):
         self.T0_map_s = torch.ones((self.n_human_types, size_xz[0], size_y, size_xz[1]), device=self.device)
         self.T0_map = torch.normal(self.T0_map_mu, self.T0_map_s)
         self.T1_map = torch.normal(self.T0_map_mu, self.T0_map_s)
-        self.T0_T1_map = torch.randn((self.n_human_types, size_xz[0], size_y, size_xz[1], 2), device=self.device)
+        self.T0_T1_map = torch.randn((self.n_human_types, size_xz[0], size_y, size_xz[1], 2), device=self.device) # (n, X, Y, Z, 2)
+
+        
 
 
     def construct_Vl_maps(self):
         # construct Vl img coordinates
         l_img_size = self.us_cfg['large_scale_resolution']
+        self.env_to_human_inds_Vl = self.env_to_human_inds.reshape((-1, 1)).repeat(1, l_img_size*l_img_size)
+
         l_arange = torch.arange(l_img_size, device=self.device)
         self.l_x_grid, self.l_z_grid = torch.meshgrid(l_arange - l_img_size//2, 
                                                   l_arange)
@@ -100,6 +113,10 @@ class USSlicer(LabelImgSlicer):
             Vl_rand_frame_pos -= l_img_size * self.label_res
             self.Vl_rand_frame_poses.append(Vl_rand_frame_pos)
 
+        self.Vl_rand_frame_poses = torch.stack(self.Vl_rand_frame_poses, dim=0) # (n, 3)
+        self.Vl_rand_frame_poses_aug = self.Vl_rand_frame_poses[self.env_to_human_inds, :] # (num_envs, 3)
+        self.Vl_rand_frame_poses_aug = self.Vl_rand_frame_poses_aug.reshape((-1, 1, 3)) # (num_envs, 1, 3)
+
         # determin 
         l_size_xyz = torch.zeros((3,), device=self.device)
         l_size_xyz[[0, 2]] = (x_z_range_tensor[1, 0:2] - x_z_range_tensor[0, 0:2])
@@ -108,7 +125,7 @@ class USSlicer(LabelImgSlicer):
 
         self.Vl_mu = torch.zeros((self.n_human_types, l_size_xyz[0], l_size_xyz[1], l_size_xyz[2]), device=self.device)
         self.Vl_s = torch.ones((self.n_human_types, l_size_xyz[0], l_size_xyz[1], l_size_xyz[2]), device=self.device)
-        self.Vl_map = torch.normal(self.Vl_mu, self.Vl_s)
+        self.Vl_map = torch.normal(self.Vl_mu, self.Vl_s) # (n, l, l, l, 2)
 
 
     def slice_rand_maps(self, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
@@ -122,50 +139,50 @@ class USSlicer(LabelImgSlicer):
             world_to_ee_pos,
             world_to_ee_quat) # (num_envs, l*l, 3)
         
-        for i in range(self.n_human_types):
-            self.rand_frame_img_coords = self.human_img_coords * self.label_res - self.T_rand_frame_poses[i]
-            self.rand_frame_img_coords = self.rand_frame_img_coords / self.img_res
-            self.rand_frame_img_coords = torch.clamp(
-                self.rand_frame_img_coords,
-                torch.zeros_like(self.rand_frame_img_coords, device=self.device),
-                max=torch.tensor(self.T0_T1_map[0].shape[:-1], device=self.device).repeat(
-                    self.rand_frame_img_coords.shape[0], self.rand_frame_img_coords.shape[1], 1) - 1)
-
-            self.T0_T1_img_tensor[i::self.n_human_types, :, :, :] = self.T0_T1_map[i % self.n_human_types][
-                self.rand_frame_img_coords[i::self.n_human_types, :, 0].int(), 
-                self.rand_frame_img_coords[i::self.n_human_types, :, 1].int(), 
-                self.rand_frame_img_coords[i::self.n_human_types, :, 2].int(), :
+        self.rand_frame_img_coords = self.human_img_coords * self.label_res - self.T_rand_frame_poses_aug
+        self.rand_frame_img_coords = self.rand_frame_img_coords / self.img_res
+        self.rand_frame_img_coords = torch.clamp(
+            self.rand_frame_img_coords,
+            torch.zeros_like(self.rand_frame_img_coords, device=self.device),
+            max=torch.tensor(self.T0_T1_map[0].shape[:-1], device=self.device).repeat(
+                self.rand_frame_img_coords.shape[0], self.rand_frame_img_coords.shape[1], 1) - 1)
+        
+        self.Vl_frame_img_coords = self.human_img_l_coords * self.label_res - self.Vl_rand_frame_poses_aug
+        self.Vl_frame_img_coords = self.Vl_frame_img_coords / self.label_res
+        self.Vl_frame_img_coords = torch.clamp(
+            self.Vl_frame_img_coords,
+            torch.zeros_like(self.Vl_frame_img_coords, device=self.device),
+            max=torch.tensor(self.Vl_map[0].shape, device=self.device).repeat(
+                self.Vl_frame_img_coords.shape[0], self.Vl_frame_img_coords.shape[1], 1) - 1)
+        
+        self.T0_T1_img_tensor = self.T0_T1_map[self.env_to_human_inds_aug,
+                self.rand_frame_img_coords[:, :, 0].int(), 
+                self.rand_frame_img_coords[:, :, 1].int(), 
+                self.rand_frame_img_coords[:, :, 2].int(), :
             ].reshape((-1, self.img_size[0], self.img_size[1], 2))
-
-            # self.T0_img_tensor[i::self.n_human_types, :, :] = self.T0_map[i % self.n_human_types][
-            #     self.rand_frame_img_coords[i::self.n_human_types, :, 0].int(), 
-            #     self.rand_frame_img_coords[i::self.n_human_types, :, 1].int(), 
-            #     self.rand_frame_img_coords[i::self.n_human_types, :, 2].int()
-            # ].reshape((-1, self.img_size[0], self.img_size[1]))
-
-            # self.T1_img_tensor[i::self.n_human_types, :, :] = self.T1_map[i % self.n_human_types][
-            #     self.rand_frame_img_coords[i::self.n_human_types, :, 0].int(), 
-            #     self.rand_frame_img_coords[i::self.n_human_types, :, 1].int(), 
-            #     self.rand_frame_img_coords[i::self.n_human_types, :, 2].int()
-            # ].reshape((-1, self.img_size[0], self.img_size[1]))
-
-            # self.T0_img_tensor = self.T0_T1_img_tensor[:, :, :, 0]
-            # self.T1_img_tensor = self.T0_T1_img_tensor[:, :, :, 1]
-
-
-            self.Vl_frame_img_coords = self.human_img_l_coords * self.label_res - self.Vl_rand_frame_poses[i]
-            self.Vl_frame_img_coords = self.Vl_frame_img_coords / self.label_res
-            self.Vl_frame_img_coords = torch.clamp(
-                self.Vl_frame_img_coords,
-                torch.zeros_like(self.Vl_frame_img_coords, device=self.device),
-                max=torch.tensor(self.Vl_map[0].shape, device=self.device).repeat(
-                    self.Vl_frame_img_coords.shape[0], self.Vl_frame_img_coords.shape[1], 1) - 1)
-
-            self.Vl_img_tensor[i::self.n_human_types, :, :] = self.Vl_map[i % self.n_human_types][
-                self.Vl_frame_img_coords[i::self.n_human_types, :, 0].int(), 
-                self.Vl_frame_img_coords[i::self.n_human_types, :, 1].int(), 
-                self.Vl_frame_img_coords[i::self.n_human_types, :, 2].int()
+        
+        self.Vl_img_tensor = self.Vl_map[self.env_to_human_inds_Vl,
+                self.Vl_frame_img_coords[:, :, 0].int(), 
+                self.Vl_frame_img_coords[:, :, 1].int(), 
+                self.Vl_frame_img_coords[:, :, 2].int()
             ].reshape((-1, l_img_size, l_img_size))
+        
+        # for i in range(self.n_human_types):
+            
+        #     self.T0_T1_img_tensor[i::self.n_human_types, :, :, :] = self.T0_T1_map[i % self.n_human_types][
+        #         self.rand_frame_img_coords[i::self.n_human_types, :, 0].int(), 
+        #         self.rand_frame_img_coords[i::self.n_human_types, :, 1].int(), 
+        #         self.rand_frame_img_coords[i::self.n_human_types, :, 2].int(), :
+        #     ].reshape((-1, self.img_size[0], self.img_size[1], 2))
+
+        #     # self.T0_img_tensor = self.T0_T1_img_tensor[:, :, :, 0]
+        #     # self.T1_img_tensor = self.T0_T1_img_tensor[:, :, :, 1]
+
+        #     self.Vl_img_tensor[i::self.n_human_types, :, :] = self.Vl_map[i % self.n_human_types][
+        #         self.Vl_frame_img_coords[i::self.n_human_types, :, 0].int(), 
+        #         self.Vl_frame_img_coords[i::self.n_human_types, :, 1].int(), 
+        #         self.Vl_frame_img_coords[i::self.n_human_types, :, 2].int()
+        #     ].reshape((-1, l_img_size, l_img_size))
 
 
     def slice_US(self, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
