@@ -85,11 +85,11 @@ INIT_STATE_BED = AssetBaseCfg.InitialStateCfg(
     pos=((0.0, 0.0, 0.3)),
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
-
+# use stl: Totalsegmentator_dataset_v2_subset_body_contact
 human_usd_list = [
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_contact/s0010", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_contact/s0014",
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_contact/s0015",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0010", 
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0014",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0015",
 ]
 human_stl_list = [
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0010", 
@@ -158,6 +158,9 @@ class RobotSceneCfg(InteractiveSceneCfg):
             max_linear_velocity=1000.0,
             max_angular_velocity=1000.0,
             max_depenetration_velocity=1.0,
+        ),
+        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+           articulation_enabled=False,
         ),
         ),
         init_state = INIT_STATE_HUMAN,
