@@ -58,8 +58,13 @@ from spinal_surgery.lab.kinematics.human_frame_viewer import HumanFrameViewer
 from spinal_surgery.lab.kinematics.surface_motion_planner import SurfaceMotionPlanner
 from spinal_surgery.lab.sensors.ultrasound.label_img_slicer import LabelImgSlicer
 from spinal_surgery.lab.sensors.ultrasound.US_slicer import USSlicer
+from spinal_surgery.lab.kinematics.gt_motion_generator import GTMotionGenerator
+from spinal_surgery.lab.agents.imitation_agents import ImitationAgent, PositionAgent
+import torch.optim as optim
+import torch.nn.functional as F
 from ruamel.yaml import YAML
 from spinal_surgery import PACKAGE_DIR
+
 
 INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
     joint_pos={
@@ -71,7 +76,7 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": 1.6, # 1.5,
         "lbr_joint_6": 0.0,
     },
-    pos = (0.0, -0.75, 0.6) # ((0.0, -0.75, 0.4))
+    pos = (0.0, -0.7, 0.7) # ((0.0, -0.75, 0.4))
 )
 
 quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
@@ -88,13 +93,13 @@ INIT_STATE_BED = AssetBaseCfg.InitialStateCfg(
 # use stl: Totalsegmentator_dataset_v2_subset_body_contact
 human_usd_list = [
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0010", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0014",
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0015",
+            # f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0014",
+            # f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0015",
 ]
 human_stl_list = [
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0010", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014",
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015",
+            # f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014",
+            # f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015",
 ]
 usd_file_list = [human_file + "/combined_wrapwrap/combined_wrapwrap.usd" for human_file in human_usd_list]
 label_map_file_list = [human_file + "/combined_label_map.nii.gz" for human_file in human_stl_list]
@@ -196,14 +201,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
 
     # construct label image slicer
     label_convert_map = YAML().load(open(f"{PACKAGE_DIR}/lab/sensors/cfgs/label_conversion.yaml", 'r'))
-    # label_img_slicer = LabelImgSlicer(
-    #     label_map_list, 
-    #     human_stl_list,
-    #     scene.num_envs, 
-    #     [[100, 100, 2.64], [200, 200, 3.64]], [150, 150, 3.14], 
-    #     sim.device, label_convert_map,
-    #     [150, 200], 0.0003
-    # )
+   
+    init_cmd_pose = torch.tensor([[150, 180, 2.5]], device=sim.device).reshape((1, -1)).repeat(scene.num_envs, 1)
+    goal_cmd_pose = torch.tensor([[170, 180, 2.0]], device=sim.device).reshape((1, -1)).repeat(scene.num_envs, 1)
 
     # construct US simulator
     us_cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/sensors/cfgs/us_cfg.yaml", 'r'))
@@ -212,18 +212,36 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         label_map_list, 
         human_stl_list,
         scene.num_envs, 
-        [[100, 100, 1.5], [200, 200, 3.14]], [150, 150, 4.5], 
+        [[100, 50, 1.5], [200, 230, 3.14]], [150, 180, 2.5], 
         sim.device, label_convert_map,
         [150, 200], 0.0004, visualize=False
     )
+    gt_motion_generator = GTMotionGenerator(
+        goal_cmd_pose=goal_cmd_pose,
+        scale=5,
+        num_envs=scene.num_envs,
+        surface_map_list=US_slicer.surface_map_list,
+        surface_normal_list=US_slicer.surface_normal_list,
+        label_res=label_res,
+        US_height=US_slicer.height,
+    )
+
+    # learning
+    # cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/agents/cfgs/imitation_agent_cfg.yaml", 'r'))
+    # agent = ImitationAgent(cfg, scene.num_envs, sim.device, US_slicer.img_size)
+    cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/agents/cfgs/position_agent_cfg.yaml", 'r'))
+    agent = PositionAgent(cfg, scene.num_envs, sim.device)
+    
 
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
     count = 0
+    episode = 0
     # Simulation loop
-    while simulation_app.is_running() and count < 1000:
+    while simulation_app.is_running() and episode <= 200:
         # Reset
         if count % 500 == 0:
+            episode += 1
             # reset counter
             # reset the scene entities
             # root state
@@ -262,12 +280,23 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             scene.reset()
             print("[INFO]: Resetting robot state...")
 
+            US_slicer.update_cmd(init_cmd_pose - US_slicer.current_x_z_x_angle_cmd)
+
+            # train
+            # print('GT Command:', gt_cmd[:5,:])
+           
+            # print(output.shape, gt_output.shape)
+            if count>0 and not episode % 5==1:
+
+                agent.train()
+
+            agent.reset()
+            # hidden = torch.zeros((1, scene.num_envs, agent.hidden_size), device=sim.device)
+            # last_vector = torch.zeros((scene.num_envs, 1, 7), device=sim.device)
+
+
+
         start = time.time()
-        # Apply random action
-        rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
-        rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
-        # rand_x_z_angle = torch.zeros((scene.num_envs, 3), device=sim.device)
-        US_slicer.update_cmd(rand_x_z_angle)
 
         # get human frame
         human_world_poses = human.data.root_state_w # these are already the initial poses
@@ -283,7 +312,77 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         )
         # update image simulation
         US_slicer.slice_US(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
-        US_slicer.visualize()
+        # US_slicer.visualize()
+
+        # go to the init pose
+        if count % 500 < 100:
+            # Apply random action # cover tha init state
+            if not episode % 5==0:
+                rand_scale = torch.tensor((100, 50, 1.64), device=sim.device).reshape((1, -1))
+                rand_start = torch.tensor((100, 50, 1.5), device=sim.device).reshape((1, -1))
+                rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device)*rand_scale + rand_start
+            else:
+                rand_scale = torch.tensor((60, 30, 1.5), device=sim.device).reshape((1, -1))
+                rand_start = torch.tensor((120, 60, 1.7), device=sim.device).reshape((1, -1))
+                rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device)*rand_scale + rand_start
+
+            # rand_x_z_angle = torch.zeros((scene.num_envs, 3), device=sim.device)
+            US_slicer.update_cmd(rand_x_z_angle-US_slicer.current_x_z_x_angle_cmd)
+        else:
+            # get cur command
+            us_imgs = US_slicer.us_img_tensor.unsqueeze(1).unsqueeze(1).float() / 255.0 # (num_envs, 1, 1, w, h)
+
+            # output, next_hidden = agent.predict(images=us_imgs, vectors=last_vector, hidden_states=hidden)
+            cur_human_ee_pos, cur_human_ee_quat = subtract_frame_transforms(
+            world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7]
+            )
+
+            # convert current pose to human command pose
+            cur_cmd_pose = gt_motion_generator.human_cmd_state_from_ee_pose(cur_human_ee_pos, cur_human_ee_quat)
+            cur_cmd_pose /= 100
+            output = agent.predict(cur_cmd_pose)
+            
+            out_quat = output[:, 3:7] / (output[:, 3:7].norm(dim=-1, keepdim=True) + 1e-9)
+            cur_cmd = gt_motion_generator.compute_human_cmd_from_current_ee_cmd(
+                US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7], output[:, 0:3].clone().detach()/1000, out_quat.clone().detach(), 
+                world_to_human_pos, world_to_human_rot
+            )
+            # train with gt command
+            gt_ee_target_pos, gt_ee_target_quat = gt_motion_generator.generate_gt_ee_cmd_from_current_pose(
+                US_slicer, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7], world_to_human_pos, world_to_human_rot
+            )
+            gt_output = torch.cat([gt_ee_target_pos, gt_ee_target_quat], dim=-1) # (num_envs, 7)
+            gt_cmd = gt_motion_generator.compute_human_cmd_from_current_ee_cmd(
+                US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7], gt_ee_target_pos, gt_ee_target_quat, 
+                world_to_human_pos, world_to_human_rot
+            )
+            # print('GT Command:', gt_cmd)
+            print('episode', episode)
+            # print('gt_cmd', gt_cmd[:5,:])
+
+            # update buffer
+            # agent.record(images=us_imgs, vectors=last_vector, hidden_states=hidden, gt_output=gt_output)
+            agent.record(cur_cmd_pose, gt_output)
+
+            diff_cmd = cur_cmd-US_slicer.current_x_z_x_angle_cmd
+            
+            if episode % 5==0:
+                # diff_cmd = diff_cmd + rand_x_z_angle
+                US_slicer.update_cmd(diff_cmd)
+            # Apply random action
+            else: 
+                # random
+                # rand_scale = torch.tensor((100, 180, 1.64), device=sim.device).reshape((1, -1))
+                # rand_start = torch.tensor((100, 50, 1.5), device=sim.device).reshape((1, -1))
+                # rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device)*rand_scale + rand_start
+                # US_slicer.update_cmd(rand_x_z_angle-US_slicer.current_x_z_x_angle_cmd)
+                # gt
+                diff_cmd = gt_cmd-US_slicer.current_x_z_x_angle_cmd
+                rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 40.0 - 20.0
+                rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
+                diff_cmd = diff_cmd + rand_x_z_angle
+                US_slicer.update_cmd(diff_cmd)
+            
         
         # compute frame in root frame
         # US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
@@ -298,10 +397,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
 
         # set new command
         pose_diff_ik_controller.set_command(base_to_ee_target_pose)
-
-        # joint_pos_des = torch.rand((scene.num_envs, len(robot_entity_cfg.joint_ids)), device=sim.device) * 2.0 - 1.0
-        torch.cuda.synchronize()
-        # # get joint position targets
+        
+        # get joint position targets
         US_jacobian = robot.root_physx_view.get_jacobians()[:, US_ee_jacobi_idx-1, :, robot_entity_cfg.joint_ids]
         US_joint_pos = robot.data.joint_pos[:, robot_entity_cfg.joint_ids]
         # compute the joint commands
@@ -311,7 +408,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             US_jacobian, 
             US_joint_pos
         )
-        
         robot.set_joint_position_target(joint_pos_des, joint_ids=robot_entity_cfg.joint_ids)
         
         # -- write data to sim
@@ -324,7 +420,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         scene.update(sim_dt)
 
         end = time.time()
-        print(f"Time taken for step: {end - start}")
+        # print(f"Time taken for step: {end - start}")
 
 
 def main():

@@ -99,7 +99,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         #     for i in range(self.num_envs)]
         # smooth
         self.check_collision(self.label_img_tensor)
-        self.label_img_tensor = self.bilateral_filter_pytorch(self.label_img_tensor.unsqueeze(1)).squeeze(1)
+        # self.label_img_tensor = self.bilateral_filter_pytorch(self.label_img_tensor.unsqueeze(1)).squeeze(1)
         
         return
     

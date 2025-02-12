@@ -1,0 +1,8 @@
+model:
+  hidden_size: [128, 128, 128]
+
+train:
+  batch_size: 2
+  buffer_size: 400
+  lr: 0.0001
+  max_iter_per_episode: 300

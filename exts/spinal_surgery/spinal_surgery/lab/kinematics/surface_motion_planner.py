@@ -127,6 +127,7 @@ class SurfaceMotionPlanner(HumanFrameViewer):
             target_x_axis = torch.cross(target_y_axis, target_z_axis, dim=-1)
             target_rot_mat = torch.stack([target_x_axis, target_y_axis, target_z_axis], dim=-1) # (num_envs / n, 3, 3)
             target_quat = quat_from_matrix_optimize(target_rot_mat) # (num_envs / n, 4)
+            # target_quat = quat_from_matrix(target_rot_mat)
             # rotation
             human_to_ee_target_quat[i::self.n_human_types] = target_quat
             # position
