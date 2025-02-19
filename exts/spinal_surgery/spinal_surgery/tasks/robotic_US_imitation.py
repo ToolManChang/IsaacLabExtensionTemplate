@@ -217,15 +217,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         sim.device, label_convert_map,
         [150, 200], 0.0004, visualize=False
     )
-    # gt_motion_generator = GTMotionGenerator(
-    #     goal_cmd_pose=goal_cmd_pose,
-    #     scale=5,
-    #     num_envs=scene.num_envs,
-    #     surface_map_list=US_slicer.surface_map_list,
-    #     surface_normal_list=US_slicer.surface_normal_list,
-    #     label_res=label_res,
-    #     US_height=US_slicer.height,
-    # )
     gt_motion_generator = GTDiscreteMotionGenerator(
         goal_cmd_pose=goal_cmd_pose,
         scale=torch.tensor([[5, 5, 0.1]], device=sim.device),
@@ -237,12 +228,10 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     )
 
     # learning
-    # cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/agents/cfgs/imitation_agent_cfg.yaml", 'r'))
-    # agent = ImitationAgent(cfg, scene.num_envs, sim.device, US_slicer.img_size)
-    cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/agents/cfgs/position_agent_cfg.yaml", 'r'))
-    agent = PositionAgent(cfg, scene.num_envs, sim.device)
+    cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/agents/cfgs/imitation_agent_cfg.yaml", 'r'))
+    agent = ImitationAgent(cfg, scene.num_envs, sim.device, US_slicer.img_size)
 
-    wandb.init(project='position_imitation', config=cfg)
+    wandb.init(project='imitation_navigation', config=cfg)
     
 
     # Define simulation stepping
@@ -250,7 +239,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     count = 0
     episode = 0
     # Simulation loop
-    while simulation_app.is_running() and episode <= 400:
+    while simulation_app.is_running() and episode <= 1000:
         # Reset
         if count % 500 == 0:
             episode += 1
@@ -303,8 +292,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
                 agent.train()
 
             agent.reset()
-            # hidden = torch.zeros((1, scene.num_envs, agent.hidden_size), device=sim.device)
-            # last_vector = torch.zeros((scene.num_envs, 1, 7), device=sim.device)
+            hidden = torch.zeros((scene.num_envs, 2, agent.hidden_size), device=sim.device)
+            last_vector = torch.zeros((scene.num_envs, 1, 3), device=sim.device)
 
 
 
@@ -324,7 +313,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         )
         # update image simulation
         US_slicer.slice_US(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
-        # US_slicer.visualize()
+        US_slicer.visualize()
 
         # go to the init pose
         if count % 500 < 100:
@@ -344,27 +333,24 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             # get cur command
             us_imgs = US_slicer.us_img_tensor.unsqueeze(1).unsqueeze(1).float() / 255.0 # (num_envs, 1, 1, w, h)
 
-            # output, next_hidden = agent.predict(images=us_imgs, vectors=last_vector, hidden_states=hidden)
+            output, next_hidden = agent.predict(images=us_imgs, vectors=last_vector, hidden_states=hidden.transpose(0, 1).contiguous())
+            direction = (output >= 0).int() * 2 - 1
+            cur_cmd = direction * gt_motion_generator.scale
+
+            # convert current pose to human command pose
             cur_human_ee_pos, cur_human_ee_quat = subtract_frame_transforms(
             world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7]
             )
-
-            # convert current pose to human command pose
             cur_cmd_pose = gt_motion_generator.human_cmd_state_from_ee_pose(cur_human_ee_pos, cur_human_ee_quat)
-            print('cur_cmd_pose', cur_cmd_pose[:10,:])
-            inputs = cur_cmd_pose.clone().detach()
-            inputs[:, 0:2] /= 100
-            output = agent.predict(inputs)
-            # # continuous
+            # cur_cmd_pose /= 100
+            # output = agent.predict(cur_cmd_pose)
+            
             # out_quat = output[:, 3:7] / (output[:, 3:7].norm(dim=-1, keepdim=True) + 1e-9)
             # cur_cmd = gt_motion_generator.compute_human_cmd_from_current_ee_cmd(
             #     US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7], output[:, 0:3].clone().detach()/1000, out_quat.clone().detach(), 
             #     world_to_human_pos, world_to_human_rot
             # )
-            # discrete
-            direction = (output >= 0).int() * 2 - 1
-            cur_cmd = direction * gt_motion_generator.scale
-            # train with gt command
+            # # train with gt command
             # gt_ee_target_pos, gt_ee_target_quat = gt_motion_generator.generate_gt_ee_cmd_from_current_pose(
             #     US_slicer, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7], world_to_human_pos, world_to_human_rot
             # )
@@ -376,14 +362,18 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             gt_cmd, gt_cmd_pose = gt_motion_generator.generate_gt_human_cmd(cur_cmd_pose)
             gt_output = (gt_cmd >= 0).int()
             # print('GT Command:', gt_cmd)
+            print('cur_cmd_pose', cur_cmd_pose[:10,:])
             print('episode', episode)
             # print('gt_cmd', gt_cmd[:5,:])
 
             # update buffer
-            # agent.record(images=us_imgs, vectors=last_vector, hidden_states=hidden, gt_output=gt_output)
-            agent.record(inputs, gt_output)
+            agent.record(images=us_imgs, vectors=last_vector, hidden_states=hidden, gt_output=gt_output)
+            # agent.record(cur_cmd_pose, gt_output)
 
-            diff_cmd = cur_cmd + cur_cmd_pose - US_slicer.current_x_z_x_angle_cmd
+            diff_cmd = cur_cmd + cur_cmd_pose-US_slicer.current_x_z_x_angle_cmd
+
+            last_vector = output.detach().unsqueeze(1)
+            hidden = next_hidden.detach().transpose(0, 1)
             
             if episode % 5==0:
                 # diff_cmd = diff_cmd + rand_x_z_angle
@@ -393,23 +383,17 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
                     wandb.log({'episode':episode, 'mean_error': mean_error})
             # Apply random action
             else: 
-                # # random
+                # random
                 # rand_scale = torch.tensor((100, 180, 1.64), device=sim.device).reshape((1, -1))
                 # rand_start = torch.tensor((100, 50, 1.5), device=sim.device).reshape((1, -1))
                 # rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device)*rand_scale + rand_start
                 # US_slicer.update_cmd(rand_x_z_angle-US_slicer.current_x_z_x_angle_cmd)
-                # # gt
+                # gt
                 diff_cmd = gt_cmd_pose-US_slicer.current_x_z_x_angle_cmd
                 rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 40.0 - 20.0
                 rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
                 diff_cmd = diff_cmd + rand_x_z_angle
                 US_slicer.update_cmd(diff_cmd)
-                # cmd
-                # diff_cmd = cur_cmd-US_slicer.current_x_z_x_angle_cmd
-                # rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 40.0 - 20.0
-                # rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
-                # diff_cmd = diff_cmd + rand_x_z_angle
-                # US_slicer.update_cmd(diff_cmd)
             
         
         # compute frame in root frame

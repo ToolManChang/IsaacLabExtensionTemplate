@@ -62,12 +62,16 @@ class SurfaceMotionPlanner(HumanFrameViewer):
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
+        human_list: list of human types
         num_envs: number of environments
         plane_axes: dict of plane axes for imaging, in our case is 'x' and 'z' axes of the ee frame
         x_z_range: range of x and z in mm in the human frame as a rectangle [[min_x, min_z, min_x_angle], [max_x, max_z, max_x_angle]]
         init_x_z_y_angle: initial x, z human position, angle between ee x axis and human x axis in the xz plane 
         of human frame [x, z, x_angle]
         height: height of ee above the surface
+        height_img: height of the us image frame
+        body_label: label of the body trunc
+        visualize: whether to visualize the human frame
         '''
         super().__init__(label_maps, num_envs, device, label_res, height_img, visualize, plane_axes)
 
@@ -123,7 +127,6 @@ class SurfaceMotionPlanner(HumanFrameViewer):
                 torch.sin(self.current_x_z_x_angle_cmd[i::self.n_human_types, 2])], dim=-1) # (num_envs / n, 3)
             target_z_axis = self.surface_normal_list[i][cur_x.int(), cur_z.int()] # (num_envs / n, 3)
             target_y_axis = torch.cross(target_z_axis, target_x_axis_proj, dim=-1) # (num_envs / n, 3)
-            # target_y_axis = target_y_axis / torch.linalg.norm(target_y_axis, dim=-1, keepdim=True)
             target_x_axis = torch.cross(target_y_axis, target_z_axis, dim=-1)
             target_rot_mat = torch.stack([target_x_axis, target_y_axis, target_z_axis], dim=-1) # (num_envs / n, 3, 3)
             target_quat = quat_from_matrix_optimize(target_rot_mat) # (num_envs / n, 4)

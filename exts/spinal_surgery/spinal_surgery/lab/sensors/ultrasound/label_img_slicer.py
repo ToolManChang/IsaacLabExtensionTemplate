@@ -17,13 +17,20 @@ class LabelImgSlicer(SurfaceMotionPlanner):
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
         '''
         label maps: list of label maps (3D volumes)
+        human_list: list of human types
         num_envs: number of environments
+        img_size: size of the image
+        img_res: resolution of the image
+        label_res: resolution of the label map
+        max_distance: maximum distance for displaying us image
         plane_axes: dict of plane axes for imaging, in our case is 'x' and 'z' axes of the ee frame
         x_z_range: range of x and z in mm in the human frame as a rectangle [[min_x, min_z, min_x_angle], [max_x, max_z, max_x_angle]]
         init_x_z_y_angle: initial x, z human position, angle between ee x axis and human x axis in the xz plane 
         of human frame [x, z
-        img_size: size of the image [w, h]
-        img_res: resolution of the image
+        body_label: label of the body trunc
+        height: height of ee above the surface
+        height_img: height of the us image frame
+        visualize: whether to visualize the human frame
         ''' 
         super().__init__(label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_res, body_label, height, height_img, visualize, plane_axes)
         self.img_size = img_size
@@ -94,9 +101,6 @@ class LabelImgSlicer(SurfaceMotionPlanner):
                 self.human_img_coords[i::self.n_human_types, :, 2].int()
             ].reshape((-1, self.img_size[0], self.img_size[1]))
 
-        # self.label_img_list = [
-        #     self.label_maps[i % self.n_human_types][human_img_coords[i, :, 0].long(), human_img_coords[i, :, 1].long(), human_img_coords[i, :, 2].long()].reshape((self.img_size[0], self.img_size[1])) 
-        #     for i in range(self.num_envs)]
         # smooth
         self.check_collision(self.label_img_tensor)
         # self.label_img_tensor = self.bilateral_filter_pytorch(self.label_img_tensor.unsqueeze(1)).squeeze(1)
@@ -121,31 +125,6 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         no_collide = first_nonzero > self.max_distance / self.label_res
         label_img_tensor[no_collide] = 0
 
-
-    # def morphological_smoothing(self, seg_tensor, kernel_size=11):
-    #     """Performs morphological closing (dilation + erosion) for multi-class segmentation maps."""
-    #     device = seg_tensor.device
-    #     unique_labels = torch.flip(torch.unique(seg_tensor), dims=(0,))  # Get all unique class labels
-
-    #     smoothed_seg = torch.zeros_like(seg_tensor)  # Placeholder for the smoothed output
-
-    #     kernel = torch.ones((1, 1, kernel_size, kernel_size), dtype=torch.float32, device=device)
-
-    #     for label in unique_labels:
-    #         if label == 0:  # Skip background if needed
-    #             continue
-
-    #         mask = (seg_tensor == label).float()  # Binary mask for the class
-
-    #         # Dilation → Expands regions
-    #         dilated = F.conv2d(mask, kernel, padding=kernel_size // 2) > 0
-
-    #         # Erosion → Shrinks back
-    #         smoothed = F.conv2d(dilated.float(), kernel, padding=kernel_size // 2) == kernel.numel()
-
-    #         smoothed_seg[smoothed] = label  # Assign label back to the smoothed mask
-
-    #     return smoothed_seg
     
     def gaussian_kernel(self, size=9, sigma=5.0):
         """Generates a 2D Gaussian kernel for edge smoothing."""

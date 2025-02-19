@@ -23,6 +23,12 @@ class USSlicer(LabelImgSlicer):
         of human frame [x, z
         img_size: size of the image [w, h]
         img_res: resolution of the image
+        label_res: resolution of the label map
+        max_distance: maximum distance for displaying us image
+        body_label: label of the body trunc
+        height: height of ee above the surface
+        height_img: height of the us image frame
+        visualize: whether to visualize the human frame
         '''
         super().__init__(label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_convert_map,
                  img_size, img_res, label_res, max_distance,
@@ -166,23 +172,6 @@ class USSlicer(LabelImgSlicer):
                 self.Vl_frame_img_coords[:, :, 1].int(), 
                 self.Vl_frame_img_coords[:, :, 2].int()
             ].reshape((-1, l_img_size, l_img_size))
-        
-        # for i in range(self.n_human_types):
-            
-        #     self.T0_T1_img_tensor[i::self.n_human_types, :, :, :] = self.T0_T1_map[i % self.n_human_types][
-        #         self.rand_frame_img_coords[i::self.n_human_types, :, 0].int(), 
-        #         self.rand_frame_img_coords[i::self.n_human_types, :, 1].int(), 
-        #         self.rand_frame_img_coords[i::self.n_human_types, :, 2].int(), :
-        #     ].reshape((-1, self.img_size[0], self.img_size[1], 2))
-
-        #     # self.T0_img_tensor = self.T0_T1_img_tensor[:, :, :, 0]
-        #     # self.T1_img_tensor = self.T0_T1_img_tensor[:, :, :, 1]
-
-        #     self.Vl_img_tensor[i::self.n_human_types, :, :] = self.Vl_map[i % self.n_human_types][
-        #         self.Vl_frame_img_coords[i::self.n_human_types, :, 0].int(), 
-        #         self.Vl_frame_img_coords[i::self.n_human_types, :, 1].int(), 
-        #         self.Vl_frame_img_coords[i::self.n_human_types, :, 2].int()
-        #     ].reshape((-1, l_img_size, l_img_size))
 
 
     def slice_US(self, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):

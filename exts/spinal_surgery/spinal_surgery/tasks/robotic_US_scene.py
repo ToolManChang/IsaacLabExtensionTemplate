@@ -61,45 +61,51 @@ from spinal_surgery.lab.sensors.ultrasound.US_slicer import USSlicer
 from ruamel.yaml import YAML
 from spinal_surgery import PACKAGE_DIR
 
+scene_cfg = YAML().load(open(f"{PACKAGE_DIR}/tasks/cfgs/robotic_US_scene.yaml", 'r'))
+
+# robot
+robot_cfg = scene_cfg['robot']
 INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
     joint_pos={
-        "lbr_joint_0": 1.5,
-        "lbr_joint_1": -0.1,
-        "lbr_joint_2": 0.0,
-        "lbr_joint_3": -1.6, # -1.2,
-        "lbr_joint_4": 0.0,
-        "lbr_joint_5": 1.6, # 1.5,
-        "lbr_joint_6": 0.0,
+        "lbr_joint_0": robot_cfg['joint_pos'][0],
+        "lbr_joint_1": robot_cfg['joint_pos'][1],
+        "lbr_joint_2": robot_cfg['joint_pos'][2],
+        "lbr_joint_3": robot_cfg['joint_pos'][3], # -1.2,
+        "lbr_joint_4": robot_cfg['joint_pos'][4],
+        "lbr_joint_5": robot_cfg['joint_pos'][5], # 1.5,
+        "lbr_joint_6": robot_cfg['joint_pos'][6],
     },
-    pos = (0.0, -0.75, 0.6) # ((0.0, -0.75, 0.4))
+    pos = robot_cfg['pos'] # ((0.0, -0.75, 0.4))
 )
 
-quat = R.from_euler("yxz", (-90, -90, 0), degrees=True).as_quat()
+# patient
+patient_cfg = scene_cfg['patient']
+quat = R.from_euler("yxz", patient_cfg['euler_yxz'], degrees=True).as_quat()
 INIT_STATE_HUMAN = RigidObjectCfg.InitialStateCfg(
-    pos=((0.2, -0.45, 1.1)), # 0.7
+    pos=patient_cfg['pos'], # 0.7
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
 
-quat = R.from_euler("xyz", (90, 0, 90), degrees=True).as_quat()
+# bed
+bed_cfg = scene_cfg['bed']
+quat = R.from_euler("xyz", bed_cfg['euler_xyz'], degrees=True).as_quat()
 INIT_STATE_BED = AssetBaseCfg.InitialStateCfg(
-    pos=((0.0, 0.0, 0.3)),
+    pos=bed_cfg['pos'], 
     rot=((quat[3], quat[0], quat[1], quat[2]))
 )
+scale_bed = bed_cfg['scale']
 # use stl: Totalsegmentator_dataset_v2_subset_body_contact
 human_usd_list = [
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0010", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0014",
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/s0015",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_body_from_urdf/" + p_id for p_id in patient_cfg['id_list']
 ]
 human_stl_list = [
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0010", 
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0014",
-            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/s0015",
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/" + p_id for p_id in patient_cfg['id_list']
 ]
+
 usd_file_list = [human_file + "/combined_wrapwrap/combined_wrapwrap.usd" for human_file in human_usd_list]
 label_map_file_list = [human_file + "/combined_label_map.nii.gz" for human_file in human_stl_list]
 
-label_res = 0.0015
+label_res = patient_cfg['label_res']
 scale = 1/label_res
 
 @configclass
@@ -126,24 +132,13 @@ class RobotSceneCfg(InteractiveSceneCfg):
         prim_path="/World/envs/env_.*/Bed", 
         spawn=sim_utils.UsdFileCfg(
             usd_path=f"{ASSETS_DATA_DIR}/MedicalBed/usd_no_contact/hospital_bed.usd",
-            scale = (0.001, 0.001, 0.001),
+            scale = (scale_bed, scale_bed, scale_bed),
         ),
         init_state = INIT_STATE_BED
     )
 
 
     # human: 
-    # human = AssetBaseCfg(
-    #     prim_path="{ENV_REGEX_NS}/Human", 
-    #     spawn=sim_utils.UsdFileCfg(
-    #         usd_path=f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_usd_no_col/s0021/combined/combined.usd",
-    #         scale = (0.001, 0.001, 0.001),
-    #         # translation = (0.0, 0.0, 1.05), # to make the asset static by specifying the translation
-    #         # orientation = (1.0, 0.0, 0.0, 0.0)
-    #     ),
-    #     init_state = INIT_STATE_HUMAN
-    # )
-
     human = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Human", 
         spawn=sim_utils.MultiUsdFileCfg(
@@ -166,15 +161,6 @@ class RobotSceneCfg(InteractiveSceneCfg):
         init_state = INIT_STATE_HUMAN,
     )
 
-    # human_collision = AssetBaseCfg(
-    #     prim_path="/World/envs/env_.*/Human_collision",
-    #     spawn=sim_utils.MultiUsdFileCfg(
-    #         usd_path=collision_file_list,
-    #         random_choice=False,
-    #         scale = (label_res, label_res, label_res),
-    #     ),
-    #     init_state = INIT_STATE_HUMAN
-    # )
 
 
 def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, label_map_list: list):
@@ -196,39 +182,34 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
 
     # construct label image slicer
     label_convert_map = YAML().load(open(f"{PACKAGE_DIR}/lab/sensors/cfgs/label_conversion.yaml", 'r'))
-    # label_img_slicer = LabelImgSlicer(
-    #     label_map_list, 
-    #     human_stl_list,
-    #     scene.num_envs, 
-    #     [[100, 100, 2.64], [200, 200, 3.64]], [150, 150, 3.14], 
-    #     sim.device, label_convert_map,
-    #     [150, 200], 0.0003
-    # )
 
     # construct US simulator
     us_cfg = YAML().load(open(f"{PACKAGE_DIR}/lab/sensors/cfgs/us_cfg.yaml", 'r'))
+    sim_cfg = scene_cfg['sim']
     US_slicer = USSlicer(
         us_cfg,
         label_map_list, 
         human_stl_list,
         scene.num_envs, 
-        [[100, 100, 1.5], [200, 200, 3.14]], [150, 150, 4.5], 
-        sim.device, label_convert_map,
-        [150, 200], 0.0004, visualize=False
+        sim_cfg['patient_xz_range'], 
+        sim_cfg['patient_xz_init'], 
+        sim.device, 
+        label_convert_map,
+        us_cfg['image_size'], 
+        us_cfg['resolution'],
+        visualize=sim_cfg['vis_seg_map'],
     )
 
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
     count = 0
     # Simulation loop
-    while simulation_app.is_running() and count < 1000:
+    while simulation_app.is_running():
         # Reset
-        if count % 500 == 0:
+        if count % sim_cfg['episode_length'] == 0:
             # reset counter
             # reset the scene entities
             # root state
-            # we offset the root state by the origin since the states are written in simulation world frame
-            # if this is not done, then the robots will be spawned at the (0, 0, 0) of the simulation world
             joint_pos = robot.data.default_joint_pos.clone()
             joint_vel = robot.data.default_joint_vel.clone()
             robot.write_joint_state_to_sim(joint_pos, joint_vel)
@@ -251,13 +232,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
             ik_commands_pose = torch.zeros(scene.num_envs, pose_diff_ik_controller.action_dim, device=sim.device)
             pose_diff_ik_controller.set_command(ik_commands_pose, US_ee_pos_b, US_ee_quat_b)
 
-            # get data from the human
-            # human_root_state = human.get_default_state() # for assets
-            # human_local_pose = human.get_local_poses()
-            
-
-            # then we can compute the relative poses and conduct simulations
-
             # clear internal buffers
             scene.reset()
             print("[INFO]: Resetting robot state...")
@@ -266,7 +240,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         # Apply random action
         rand_x_z_angle = torch.rand((scene.num_envs, 3), device=sim.device) * 2.0 - 1.0
         rand_x_z_angle[:, 2] = (rand_x_z_angle[:, 2] / 10)
-        # rand_x_z_angle = torch.zeros((scene.num_envs, 3), device=sim.device)
         US_slicer.update_cmd(rand_x_z_angle)
 
         # get human frame
@@ -283,10 +256,12 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         )
         # update image simulation
         US_slicer.slice_US(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
-        US_slicer.visualize()
+        if sim_cfg['vis_us']:
+            US_slicer.visualize()
         
         # compute frame in root frame
-        # US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
+        if sim_cfg['vis_seg_map']:
+            US_slicer.update_plotter(world_to_human_pos, world_to_human_rot, US_ee_pose_w[:, 0:3], US_ee_pose_w[:, 3:7])
         world_to_ee_target_pos, world_to_ee_target_rot = US_slicer.compute_world_ee_pose_from_cmd(
             world_to_human_pos, world_to_human_rot)
         world_to_ee_target_pose = torch.cat([world_to_ee_target_pos, world_to_ee_target_rot], dim=-1)
@@ -299,7 +274,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         # set new command
         pose_diff_ik_controller.set_command(base_to_ee_target_pose)
 
-        # joint_pos_des = torch.rand((scene.num_envs, len(robot_entity_cfg.joint_ids)), device=sim.device) * 2.0 - 1.0
         torch.cuda.synchronize()
         # # get joint position targets
         US_jacobian = robot.root_physx_view.get_jacobians()[:, US_ee_jacobi_idx-1, :, robot_entity_cfg.joint_ids]
