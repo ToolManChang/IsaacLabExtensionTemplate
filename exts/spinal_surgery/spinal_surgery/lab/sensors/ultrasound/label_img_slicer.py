@@ -11,7 +11,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
     # Function: __init__
     # Function: slice_label_img
     # Function: update_plotter
-    def __init__(self, label_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_convert_map,
+    def __init__(self, label_maps, ct_maps, human_list, num_envs, x_z_range, init_x_z_x_angle, device, label_convert_map,
                  img_size, img_res, label_res=0.0015, max_distance=0.015, # [m]
                  body_label=120, height = 0.1, height_img = 0.1,
                  visualize=True, plane_axes={'h': [0, 0, 1], 'w': [1, 0, 0]}):
@@ -38,12 +38,19 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         self.max_distance = max_distance
         self.img_real_size = [img_size[0] * img_res, img_size[1] * img_res]
         self.height_img = height_img
+
+        # TODO: add CT maps
+        self.ct_maps = [torch.tensor(ct_map, dtype=torch.uint8, device=device) for ct_map in ct_maps]
+
         for i in range(self.n_human_types):
             for key, value in label_convert_map.items():
                 self.label_maps[i][self.label_maps[i] == key] = value
 
         # construct images
         self.label_img_tensor = torch.zeros((self.num_envs, self.img_size[0], self.img_size[1]), 
+                                            dtype=torch.uint8, 
+                                            device=self.device) # (num_envs, w, h)
+        self.ct_img_tensor = torch.zeros((self.num_envs, self.img_size[0], self.img_size[1]), 
                                             dtype=torch.uint8, 
                                             device=self.device) # (num_envs, w, h)
 
@@ -100,12 +107,19 @@ class LabelImgSlicer(SurfaceMotionPlanner):
                 self.human_img_coords[i::self.n_human_types, :, 1].int(), 
                 self.human_img_coords[i::self.n_human_types, :, 2].int()
             ].reshape((-1, self.img_size[0], self.img_size[1]))
+            self.ct_img_tensor[i::self.n_human_types, :, :] = self.ct_maps[i % self.n_human_types][
+                self.human_img_coords[i::self.n_human_types, :, 0].int(), 
+                self.human_img_coords[i::self.n_human_types, :, 1].int(), 
+                self.human_img_coords[i::self.n_human_types, :, 2].int()
+            ].reshape((-1, self.img_size[0], self.img_size[1]))
+
 
         # smooth
-        self.check_collision(self.label_img_tensor)
+        self.check_collision(self.label_img_tensor, self.ct_img_tensor)
         # self.label_img_tensor = self.bilateral_filter_pytorch(self.label_img_tensor.unsqueeze(1)).squeeze(1)
         
         return
+    
     
     def get_distances_from_label_img(self, label_img_tensor):
         '''
@@ -117,13 +131,14 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         first_nonzero = torch.argmax((label_img_tensor > 0).int(), dim=2) # (N, W)
         return torch.min(first_nonzero, dim=1).values # (N, )
 
-    def check_collision(self, label_img_tensor):
+    def check_collision(self, label_img_tensor, ct_img_tensor):
         '''
         check collision
         '''
         first_nonzero = self.get_distances_from_label_img(label_img_tensor)
         no_collide = first_nonzero > self.max_distance / self.label_res
         label_img_tensor[no_collide] = 0
+        ct_img_tensor[no_collide] = 0
 
     
     def gaussian_kernel(self, size=9, sigma=5.0):
@@ -163,6 +178,13 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         combined_img_np = combined_img.cpu().numpy()
 
         cv2.imshow("Label Image Update", combined_img_np.T / np.max(combined_img_np))
+        cv2.waitKey(1)
+
+        combined_ct = self.ct_img_tensor[:first_n, :, :].reshape((first_n * self.img_size[0], self.img_size[1])) # (w * first_n, h)
+
+        combined_ct_np = combined_ct.cpu().numpy()
+
+        cv2.imshow("Ct Image Update", combined_ct_np.T / np.max(combined_ct_np))
         cv2.waitKey(1)
 
         return

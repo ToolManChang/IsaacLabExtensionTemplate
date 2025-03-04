@@ -46,6 +46,7 @@ from omni.isaac.lab.managers import SceneEntityCfg
 import nibabel as nib
 import cProfile
 import time
+import numpy as np
 
 ##
 # Pre-defined configs
@@ -101,9 +102,13 @@ human_usd_list = [
 human_stl_list = [
             f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset_stl/" + p_id for p_id in patient_cfg['id_list']
 ]
+human_raw_list = [
+            f"{ASSETS_DATA_DIR}/HumanModels/Totalsegmentator_dataset_v2_subset/" + p_id for p_id in patient_cfg['id_list']
+]
 
 usd_file_list = [human_file + "/combined_wrapwrap/combined_wrapwrap.usd" for human_file in human_usd_list]
 label_map_file_list = [human_file + "/combined_label_map.nii.gz" for human_file in human_stl_list]
+ct_map_file_list = [human_file + "/ct.nii.gz" for human_file in human_raw_list]
 
 label_res = patient_cfg['label_res']
 scale = 1/label_res
@@ -163,7 +168,7 @@ class RobotSceneCfg(InteractiveSceneCfg):
 
 
 
-def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, label_map_list: list):
+def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, label_map_list: list, ct_map_list: list = None):
     """Runs the simulation loop."""
     # Extract scene entities
     # note: we only do this here for readability.
@@ -189,6 +194,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     US_slicer = USSlicer(
         us_cfg,
         label_map_list, 
+        ct_map_list,
+        sim_cfg['if_use_ct'],
         human_stl_list,
         scene.num_envs, 
         sim_cfg['patient_xz_range'], 
@@ -309,19 +316,27 @@ def main():
     # Set main camera
     sim.set_camera_view([2.5, 0.0, 4.0], [0.0, 0.0, 2.0])
     # Design scene
-    scene_cfg = RobotSceneCfg(num_envs=args_cli.num_envs, env_spacing=4.0, replicate_physics=False)
-    scene = InteractiveScene(scene_cfg)
+    robot_scene_cfg = RobotSceneCfg(num_envs=args_cli.num_envs, env_spacing=4.0, replicate_physics=False)
+    scene = InteractiveScene(robot_scene_cfg)
     # load label maps
     label_map_list = []
     for label_map_file in label_map_file_list:
         label_map = nib.load(label_map_file).get_fdata()
         label_map_list.append(label_map)
+    # load ct maps
+    ct_map_list = []
+    for ct_map_file in ct_map_file_list:
+        ct_map = nib.load(ct_map_file).get_fdata()
+        ct_min_max = scene_cfg['sim']['ct_range']
+        ct_map = np.clip(ct_map, ct_min_max[0], ct_min_max[1])
+        ct_map = (ct_map - ct_min_max[0]) / (ct_min_max[1] - ct_min_max[0]) * 255
+        ct_map_list.append(ct_map)
     # Play the simulator
     sim.reset()
     # Now we are ready!
     print("[INFO]: Setup complete...")
     # Run the simulator
-    run_simulator(sim, scene, label_map_list)
+    run_simulator(sim, scene, label_map_list, ct_map_list)
 
 
 if __name__ == "__main__":

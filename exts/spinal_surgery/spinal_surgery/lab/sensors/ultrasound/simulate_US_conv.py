@@ -52,6 +52,7 @@ class USSimulatorConv:
         self.sx_B = system_params["sx_B"]
         self.sy_B = system_params["sy_B"]
         self.beta = system_params["TGC_beta"]
+        self.beta_edge = system_params["TGC_edge"]
 
         self.n_I = system_params["noise_I"]
         self.n_mu0 = system_params["noise_mu0"]
@@ -190,6 +191,23 @@ class USSimulatorConv:
         label_down = pad_img[:, 1:-1, 1:-1]
 
         if_edge = torch.logical_not(label_up==label_down)
+        edge_map[if_edge] = 1
+
+        return edge_map
+    
+    def compute_ct_edge_map(self, ct_img: torch.Tensor):
+        '''
+        (n, H, W)
+        Compute the edge between labels
+        '''
+
+        edge_map = torch.zeros(ct_img.shape, device=ct_img.device)
+        pad_img = F.pad(ct_img, (1, 1, 1, 1), 'reflect')
+
+        label_up = pad_img[:, :-2, 1:-1]
+        label_down = pad_img[:, 1:-1, 1:-1]
+
+        if_edge = abs(label_up-label_down) > (label_down * 0.3)
         edge_map[if_edge] = 1
 
         return edge_map
@@ -335,7 +353,9 @@ class USSimulatorConv:
                                          T0_img: torch.Tensor, 
                                          T1_img: torch.Tensor, 
                                          Vl_img: torch.Tensor, 
-                                         if_noise=True):
+                                         if_noise=True,
+                                         if_ct=False,
+                                         ct_img=None):
         '''
         img: (n, H. W)
         simulate us image based on label img
@@ -345,8 +365,11 @@ class USSimulatorConv:
 
         # assign parameters
         params_map = self.assign_params_map(label_img)
-        alpha_map = params_map[:, :, :, 0] - self.beta
-        z_map = params_map[:, :, :, 1]
+        alpha_map = params_map[:, :, :, 0]
+        if if_ct:
+            z_map = ct_img * 1e2
+        else:
+            z_map = params_map[:, :, :, 1]
         T_params_map = params_map[:, :, :, 2:5]
 
         # visualize_img(alpha_map[0, :, :].cpu().numpy())
@@ -354,8 +377,12 @@ class USSimulatorConv:
         # visualize_img(T_params_map[0, :, :, 0].cpu().numpy())
 
         # compute items
-        atten_map = self.compute_attenuation_map(alpha_map)
-        edge_map = self.compute_edge_map(label_img)
+        atten_map = self.compute_attenuation_map(alpha_map - self.beta)
+        atten_map_E = self.compute_attenuation_map(alpha_map - self.beta_edge)
+        if if_ct:
+            edge_map = self.compute_ct_edge_map(ct_img)
+        else:
+            edge_map = self.compute_edge_map(label_img)
 
         # visualize_img(atten_map[0, :, :].cpu().numpy())
         # visualize_img(edge_map[0, :, :].cpu().numpy())
@@ -377,11 +404,13 @@ class USSimulatorConv:
         # visualize_img(((z1_map - z2_map)**2 / (z1_map + z2_map + 1e-5)**2).cpu().numpy())
 
         # compute reflection term
-        E_map = self.I0_map * atten_map 
-        E_map = E_map * edge_map 
+        E_map = self.I0_map * atten_map_E
         E_map = E_map * (z1_map - z2_map)**2 / (z1_map + z2_map + 1e-5)**2
-        E_map *= cos_map
+        if not if_ct:
+            E_map = E_map * edge_map 
+            E_map *= cos_map
         E_map = E_map[:, None, :, :]
+        E_map[E_map>0.1] = 0.1
         E_map = F.conv2d(input=E_map, weight=self.PSF_E, stride=1, padding='same')[:, 0, :, :]
 
         # visualize_img(E_map.cpu().numpy(), True)
