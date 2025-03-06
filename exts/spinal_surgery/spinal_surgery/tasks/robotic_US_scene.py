@@ -146,7 +146,7 @@ class RobotSceneCfg(InteractiveSceneCfg):
                 max_linear_velocity=1000.0,
                 max_angular_velocity=1000.0,
                 max_depenetration_velocity=1.0,
-                solver_position_iteration_count=4,
+                solver_position_iteration_count=8,
                 solver_velocity_iteration_count=0,
             ), # Improves a lot of time count=8 0.014-0.013
         ),
@@ -169,12 +169,12 @@ class RobotSceneCfg(InteractiveSceneCfg):
             max_linear_velocity=1000.0,
             max_angular_velocity=1000.0,
             max_depenetration_velocity=1.0,
-            solver_position_iteration_count=4,
+            solver_position_iteration_count=8,
             solver_velocity_iteration_count=0,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
            articulation_enabled=False,
-           solver_position_iteration_count=4,
+           solver_position_iteration_count=8,
            solver_velocity_iteration_count=0,
         ),
         ),
