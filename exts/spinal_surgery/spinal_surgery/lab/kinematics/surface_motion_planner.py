@@ -127,10 +127,6 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         world_to_human_pos: (num_envs, 3)
         world_to_human_rot: (num_envs, 4)
         '''
-
-        # vectorize
-        human_to_ee_target_pos = torch.zeros((self.num_envs, 3), device=self.device)
-        human_to_ee_target_quat = torch.zeros((self.num_envs, 4), device=self.device)
         
         # TODO: make a kernel for this
         for i in range(self.n_human_types):
@@ -181,6 +177,7 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         )
 
         return world_to_ee_target_pos, world_to_ee_target_rot
+    
     
     def update_cmd(self, d_x_z_x_angle):
         '''

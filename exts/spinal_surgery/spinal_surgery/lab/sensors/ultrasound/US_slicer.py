@@ -94,6 +94,9 @@ class USSlicer(LabelImgSlicer):
         self.T1_map = torch.normal(self.T0_map_mu, self.T0_map_s)
         self.T0_T1_map = torch.randn((self.n_human_types, size_xz[0], size_y, size_xz[1], 2), device=self.device) # (n, X, Y, Z, 2)
 
+        self.rand_coords_min = torch.zeros((self.num_envs, self.img_size[0] * self.img_size[1], 3), device=self.device)
+        self.rand_coords_max = torch.tensor(self.T0_T1_map[0].shape[:-1], device=self.device).repeat(
+                self.num_envs, self.img_size[0] * self.img_size[1], 1) - 1
         
 
 
@@ -134,6 +137,10 @@ class USSlicer(LabelImgSlicer):
         self.Vl_s = torch.ones((self.n_human_types, l_size_xyz[0], l_size_xyz[1], l_size_xyz[2]), device=self.device)
         self.Vl_map = torch.normal(self.Vl_mu, self.Vl_s) # (n, l, l, l, 2)
 
+        self.Vl_coords_min = torch.zeros((self.num_envs, self.l_img_coords.shape[0], 3), device=self.device)
+        self.Vl_coords_max = torch.tensor(self.Vl_map[0].shape, device=self.device).repeat(
+                self.num_envs, self.l_img_coords.shape[0], 1) - 1
+
 
     def slice_rand_maps(self, world_to_human_pos, world_to_human_quat, world_to_ee_pos, world_to_ee_quat):
         # slice random maps
@@ -150,17 +157,15 @@ class USSlicer(LabelImgSlicer):
         self.rand_frame_img_coords = self.rand_frame_img_coords / self.img_res
         self.rand_frame_img_coords = torch.clamp(
             self.rand_frame_img_coords,
-            torch.zeros_like(self.rand_frame_img_coords, device=self.device),
-            max=torch.tensor(self.T0_T1_map[0].shape[:-1], device=self.device).repeat(
-                self.rand_frame_img_coords.shape[0], self.rand_frame_img_coords.shape[1], 1) - 1)
+            self.rand_coords_min,
+            max=self.rand_coords_max)
         
         self.Vl_frame_img_coords = self.human_img_l_coords * self.label_res - self.Vl_rand_frame_poses_aug
         self.Vl_frame_img_coords = self.Vl_frame_img_coords / self.label_res
         self.Vl_frame_img_coords = torch.clamp(
             self.Vl_frame_img_coords,
-            torch.zeros_like(self.Vl_frame_img_coords, device=self.device),
-            max=torch.tensor(self.Vl_map[0].shape, device=self.device).repeat(
-                self.Vl_frame_img_coords.shape[0], self.Vl_frame_img_coords.shape[1], 1) - 1)
+            self.Vl_coords_min,
+            max=self.Vl_coords_max)
         
         self.T0_T1_img_tensor = self.T0_T1_map[self.env_to_human_inds_aug,
                 self.rand_frame_img_coords[:, :, 0].int(), 
