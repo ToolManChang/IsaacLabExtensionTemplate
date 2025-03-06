@@ -161,6 +161,8 @@ class RobotSceneCfg(InteractiveSceneCfg):
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
            articulation_enabled=False,
+           solver_position_iteration_count=8,
+           solver_velocity_iteration_count=0,
         ),
         ),
         init_state = INIT_STATE_HUMAN,
@@ -211,7 +213,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
     sim_dt = sim.get_physics_dt()
     count = 0
     # Simulation loop
-    while simulation_app.is_running():
+    while simulation_app.is_running() and count < 1000:
         # Reset
         if count % sim_cfg['episode_length'] == 0:
             # reset counter
@@ -281,7 +283,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, lab
         # set new command
         pose_diff_ik_controller.set_command(base_to_ee_target_pose)
 
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()
         # # get joint position targets
         US_jacobian = robot.root_physx_view.get_jacobians()[:, US_ee_jacobi_idx-1, :, robot_entity_cfg.joint_ids]
         US_joint_pos = robot.data.joint_pos[:, robot_entity_cfg.joint_ids]

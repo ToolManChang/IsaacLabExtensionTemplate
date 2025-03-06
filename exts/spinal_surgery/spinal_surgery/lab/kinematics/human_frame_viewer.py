@@ -43,13 +43,20 @@ class HumanFrameViewer:
             # add origin markers (num_envs)
             self.w_markers_list = []
             self.h_markers_list = []
+
+            self.w_axis = np.array(self.plane_axes['w'])
+            self.h_axis = np.array(self.plane_axes['h'])
+
+            self.w_axis_tensor = torch.tensor(self.plane_axes['w'], device=human_to_ee_pos.device)
+            self.h_axis_tensor = torch.tensor(self.plane_axes['h'], device=human_to_ee_pos.device)
+
+            self.np_linear_space = np.linspace(0.0, 10, 5).reshape((-1, 1))
             
             for j in range(num_envs):
                 # create axis
-                w_axis = np.array(self.plane_axes['w'])
-                h_axis = np.array(self.plane_axes['h'])
-                ee_w_points = np.linspace(0.0, 10, 5).reshape((-1, 1)) * w_axis.reshape((1, -1)) + height_img / self.label_res * h_axis.reshape((1, -1))
-                ee_h_points = (np.linspace(0.0, 10, 5).reshape((-1, 1)) + height_img / self.label_res) * h_axis.reshape((1, -1))
+                
+                ee_w_points = self.np_linear_space * self.w_axis.reshape((1, -1)) + height_img / self.label_res * self.h_axis.reshape((1, -1))
+                ee_h_points = (self.np_linear_space + height_img / self.label_res) * h_axis.reshape((1, -1))
                 w_axis_pv = pv.PolyData(ee_w_points)
                 h_axis_pv = pv.PolyData(ee_h_points)
                 
@@ -69,12 +76,12 @@ class HumanFrameViewer:
         - human_to_ee_poses: tensor of human to ee poses: num_envs x 3
         - human_to_ee_quats: tensor of human to ee quaternions: num_envs x 4
         '''
-        w_axis = torch.tensor(self.plane_axes['w'], device=human_to_ee_pos.device)
-        h_axis = torch.tensor(self.plane_axes['h'], device=human_to_ee_pos.device)
-        ee_w_points = (torch.linspace(0.0, 10, 5, device=human_to_ee_pos.device).reshape((-1, 1)) * w_axis.reshape((1, -1))
-                       + self.height_img / self.label_res * h_axis.reshape((1, -1)))
+        # TODO: allocate once in the init
+        
+        ee_w_points = (torch.linspace(0.0, 10, 5, device=human_to_ee_pos.device).reshape((-1, 1)) * self.w_axis_tensor.reshape((1, -1))
+                       + self.height_img / self.label_res * self.h_axis_tensor.reshape((1, -1)))
         ee_h_points = (torch.linspace(0.0, 10, 5, device=human_to_ee_pos.device).reshape((-1, 1)) 
-                       + self.height_img / self.label_res) * h_axis.reshape((1, -1))
+                       + self.height_img / self.label_res) * self.h_axis_tensor.reshape((1, -1))
         human_w_points = transform_points(ee_w_points, human_to_ee_pos / self.label_res, human_to_ee_quat)
         human_h_points = transform_points(ee_h_points, human_to_ee_pos / self.label_res, human_to_ee_quat)
 
@@ -98,11 +105,13 @@ class HumanFrameViewer:
 
         # obtain point positions in human frame
         human_w_points, human_h_points = self.ee_pose_to_human_pcd(human_ee_pos, human_ee_quat)
+        human_w_points = human_w_points.cpu().numpy()
+        human_h_points = human_h_points.cpu().numpy()
 
         # update markers
         for i in range(self.num_envs):
-            self.w_markers_list[i].points = human_w_points[i, :, :].cpu().numpy()
-            self.h_markers_list[i].points = human_h_points[i, :, :].cpu().numpy()
+            self.w_markers_list[i].points = human_w_points[i, :, :]
+            self.h_markers_list[i].points = human_h_points[i, :, :]
         
         for p in self.p_list:
             p.update()
