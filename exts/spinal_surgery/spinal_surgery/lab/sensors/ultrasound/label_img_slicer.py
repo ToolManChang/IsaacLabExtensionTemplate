@@ -136,9 +136,9 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         check collision
         '''
         first_nonzero = self.get_distances_from_label_img(label_img_tensor)
-        no_collide = first_nonzero > self.max_distance / self.label_res
-        label_img_tensor[no_collide] = 0
-        ct_img_tensor[no_collide] = 0
+        self.no_collide = first_nonzero > self.max_distance / self.label_res
+        label_img_tensor[self.no_collide] = 0
+        ct_img_tensor[self.no_collide] = 0
 
     
     def gaussian_kernel(self, size=9, sigma=5.0):

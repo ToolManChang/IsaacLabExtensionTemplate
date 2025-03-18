@@ -3,6 +3,8 @@ Python module serving as a project/extension template.
 """
 
 # Register Gym environments.
+from .scenes import *
+from .lab import *
 from .tasks import *
 
 # Register UI extensions.

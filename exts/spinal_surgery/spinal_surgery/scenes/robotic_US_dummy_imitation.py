@@ -68,7 +68,7 @@ import wandb
 import numpy as np
 
 
-scene_cfg = YAML().load(open(f"{PACKAGE_DIR}/tasks/cfgs/robotic_US_imitation.yaml", 'r'))
+scene_cfg = YAML().load(open(f"{PACKAGE_DIR}/scenes/cfgs/robotic_US_imitation.yaml", 'r'))
 
 # robot
 robot_cfg = scene_cfg['robot']
