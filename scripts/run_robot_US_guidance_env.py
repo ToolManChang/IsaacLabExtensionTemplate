@@ -41,7 +41,7 @@ from omni.isaac.lab.envs import DirectRLEnv
 from omni.isaac.lab_tasks.utils import parse_env_cfg
 import gymnasium as gym
 
-from spinal_surgery.tasks.robot_US_guidance.robotic_US_guidance import roboticUSEnvCfg, roboticUSEnv
+import spinal_surgery
 
 def main():
     """Main function."""
@@ -66,9 +66,10 @@ def main():
             # sample random actions
             commands = torch.rand((args_cli.num_envs, 3)) * 2.0 - 1.0
             commands[:, 2] = (commands[:, 2] / 10)
-            print(count)
+            
             # step the environment
             obs, rew, terminated, truncated, info = env.step(commands)
+            # print(rew)
             # print current orientation of pole
             # update counter
             count += 1

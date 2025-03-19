@@ -76,7 +76,7 @@ class LabelImgSlicer(SurfaceMotionPlanner):
         human_to_img_pos = (human_to_ee_pos + self.height_img * normal_drcts) # (num_envs, 3)
         # human_to_img_pos = human_to_img_pos - self.img_real_size[0] / 2 * human_to_ee_rot[:, 0] # (num_envs, 3)
         human_img_coords = transform_points(img_coords, human_to_img_pos, human_to_ee_quat) # (num_envs, w*h, 3)
-        human_img_coords = human_img_coords / self.label_res # convert to pixel coords
+        human_img_coords = human_img_coords.reshape((-1, img_coords.shape[0], img_coords.shape[1])) / self.label_res # convert to pixel coords
         # clamp the coords
         human_img_coords = torch.clamp(
             human_img_coords, 

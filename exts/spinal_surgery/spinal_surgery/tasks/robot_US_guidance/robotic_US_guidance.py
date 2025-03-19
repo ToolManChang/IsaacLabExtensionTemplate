@@ -4,7 +4,7 @@ from __future__ import annotations
 import torch
 
 import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
+from omni.isaac.lab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg, Articulation, RigidObject
 from omni.isaac.lab.scene import InteractiveScene, InteractiveSceneCfg
 from omni.isaac.lab.sim import SimulationContext
 from omni.isaac.lab.utils import configclass
@@ -17,6 +17,7 @@ import cProfile
 import time
 import numpy as np
 from collections.abc import Sequence
+import gymnasium as gym
 
 ##
 # Pre-defined configs
@@ -47,23 +48,23 @@ INIT_STATE_ROBOT_US = ArticulationCfg.InitialStateCfg(
         "lbr_joint_5": robot_cfg['joint_pos'][5], # 1.5,
         "lbr_joint_6": robot_cfg['joint_pos'][6],
     },
-    pos = robot_cfg['pos'] # ((0.0, -0.75, 0.4))
+    pos = (float(robot_cfg['pos'][0]), float(robot_cfg['pos'][1]), float(robot_cfg['pos'][2])) # ((0.0, -0.75, 0.4))
 )
 
 # patient
 patient_cfg = scene_cfg['patient']
 quat = R.from_euler("yxz", patient_cfg['euler_yxz'], degrees=True).as_quat()
 INIT_STATE_HUMAN = RigidObjectCfg.InitialStateCfg(
-    pos=patient_cfg['pos'], # 0.7
-    rot=((quat[3], quat[0], quat[1], quat[2]))
+    pos=(float(patient_cfg['pos'][0]), float(patient_cfg['pos'][1]), float(patient_cfg['pos'][2])), # 0.7
+    rot=(float(quat[3]), float(quat[0]), float(quat[1]), float(quat[2]))
 )
 
 # bed
 bed_cfg = scene_cfg['bed']
 quat = R.from_euler("xyz", bed_cfg['euler_xyz'], degrees=True).as_quat()
 INIT_STATE_BED = AssetBaseCfg.InitialStateCfg(
-    pos=bed_cfg['pos'], 
-    rot=((quat[3], quat[0], quat[1], quat[2]))
+    pos=(float(bed_cfg['pos'][0]), float(bed_cfg['pos'][1]), float(bed_cfg['pos'][2])), # 0.7
+    rot=(0.5, 0.5, 0.5, 0.5)
 )
 scale_bed = bed_cfg['scale']
 # use stl: Totalsegmentator_dataset_v2_subset_body_contact
@@ -83,74 +84,7 @@ ct_map_file_list = [human_file + "/ct.nii.gz" for human_file in human_raw_list]
 
 label_res = patient_cfg['label_res']
 scale = 1/label_res
-
-@configclass
-class RobotSceneCfg(InteractiveSceneCfg):
-    """Configuration for a cart-pole scene."""
-
-    # ground plane
-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
-
-    # lights
-    dome_light = AssetBaseCfg(
-        prim_path="/World/Light", spawn=sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
-    )
-
-    # articulation
-    # kuka US
-    robot_US = KUKA_HIGH_PD_CFG.replace(
-        prim_path="/World/envs/env_.*/Robot_US",
-        init_state=INIT_STATE_ROBOT_US
-    )
-
-    # medical bad
-    medical_bad = AssetBaseCfg(
-        prim_path="/World/envs/env_.*/Bed", 
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=f"{ASSETS_DATA_DIR}/MedicalBed/usd_no_contact/hospital_bed.usd",
-            scale = (scale_bed, scale_bed, scale_bed),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False,
-                retain_accelerations=False,
-                linear_damping=0.0,
-                angular_damping=0.0,
-                max_linear_velocity=1000.0,
-                max_angular_velocity=1000.0,
-                max_depenetration_velocity=1.0,
-                solver_position_iteration_count=8,
-                solver_velocity_iteration_count=0,
-            ), # Improves a lot of time count=8 0.014-0.013
-        ),
-        init_state = INIT_STATE_BED
-    )
-
-
-    # human: 
-    human = RigidObjectCfg(
-        prim_path="/World/envs/env_.*/Human", 
-        spawn=sim_utils.MultiUsdFileCfg(
-        usd_path=usd_file_list,
-        random_choice=False,
-        scale = (label_res, label_res, label_res),
-        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-            disable_gravity=False,
-            retain_accelerations=False,
-            linear_damping=0.0,
-            angular_damping=0.0,
-            max_linear_velocity=1000.0,
-            max_angular_velocity=1000.0,
-            max_depenetration_velocity=1.0,
-            solver_position_iteration_count=8,
-            solver_velocity_iteration_count=0,
-        ),
-        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-           articulation_enabled=False,
-           solver_position_iteration_count=8,
-           solver_velocity_iteration_count=0,
-        ),
-        ),
-        init_state = INIT_STATE_HUMAN,
-    )
+    
 
 
 
@@ -161,14 +95,20 @@ class roboticUSEnvCfg(DirectRLEnvCfg):
     episode_length_s = 500
     action_scale = 1 
     action_space = 3
-    observation_space = (256, 256)
+    observation_space = [1, 200, 150]
     state_space = 0
+    observation_scale = 8
 
     # simulation
     sim: sim_utils.SimulationCfg = sim_utils.SimulationCfg(dt=1 / 120, render_interval=decimation)
 
+    robot_cfg: ArticulationCfg = KUKA_HIGH_PD_CFG.replace(
+        prim_path="/World/envs/env_.*/Robot_US",
+        init_state=INIT_STATE_ROBOT_US
+    )
+
     # scene
-    scene: InteractiveSceneCfg = RobotSceneCfg(num_envs=100, env_spacing=4.0, replicate_physics=False)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=100, env_spacing=4.0, replicate_physics=False)
 
 
 class roboticUSEnv(DirectRLEnv):
@@ -229,9 +169,10 @@ class roboticUSEnv(DirectRLEnv):
 
         # construct ground truth motion generator
         motion_plan_cfg = scene_cfg['motion_planning']
-        goal_cmd_pose = torch.tensor(motion_plan_cfg['patient_xz_goal'], device=self.sim.device).reshape((1, -1)).repeat(self.scene.num_envs, 1)
+        self.max_action = torch.tensor(self.sim_cfg['max_action'], device=self.sim.device).reshape((1, -1))
+        self.goal_cmd_pose = torch.tensor(motion_plan_cfg['patient_xz_goal'], device=self.sim.device).reshape((1, -1)).repeat(self.scene.num_envs, 1)
         self.gt_motion_generator = GTDiscreteMotionGenerator(
-            goal_cmd_pose=goal_cmd_pose,
+            goal_cmd_pose=self.goal_cmd_pose,
             scale=torch.tensor(motion_plan_cfg['scale'], device=self.sim.device),
             num_envs=self.scene.num_envs,
             surface_map_list=self.US_slicer.surface_map_list,
@@ -239,25 +180,116 @@ class roboticUSEnv(DirectRLEnv):
             label_res=label_res,
             US_height=self.US_slicer.height,
         )
+        
+        # change observation space to image 
+        self.observation_space = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(self.cfg.observation_space[0], self.cfg.observation_space[1], self.cfg.observation_space[2]),
+            dtype=np.uint8,
+        )
+
+        self.single_observation_space['policy'] = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(self.cfg.observation_space[0], self.cfg.observation_space[1], self.cfg.observation_space[2]),
+            dtype=np.uint8,
+        )
 
 
     def _setup_scene(self):
+        """Configuration for a cart-pole scene."""
+
+        # ground plane
+        ground_cfg = sim_utils.GroundPlaneCfg()
+        ground_cfg.func("/World/defaultGroundPlane", ground_cfg)
+
+        # lights
+        dome_light_cfg = sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
+        dome_light_cfg.func("/World/Light", dome_light_cfg)
+
+        # articulation
+        # kuka US
+        self.robot = Articulation(self.cfg.robot_cfg)
+
+        # medical bad
+        medical_bed_cfg = RigidObjectCfg(
+            prim_path="/World/envs/env_.*/Bed", 
+            spawn=sim_utils.UsdFileCfg(
+                usd_path=f"{ASSETS_DATA_DIR}/MedicalBed/usd_no_contact/hospital_bed.usd",
+                scale = (scale_bed, scale_bed, scale_bed),
+                rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                    disable_gravity=False,
+                    retain_accelerations=False,
+                    linear_damping=0.0,
+                    angular_damping=0.0,
+                    max_linear_velocity=1000.0,
+                    max_angular_velocity=1000.0,
+                    max_depenetration_velocity=1.0,
+                    solver_position_iteration_count=8,
+                    solver_velocity_iteration_count=0,
+                ), # Improves a lot of time count=8 0.014-0.013
+            ),
+            init_state = INIT_STATE_BED
+        )
+        medical_bed = RigidObject(medical_bed_cfg)
+
+
+        # human: 
+        human_cfg = RigidObjectCfg(
+            prim_path="/World/envs/env_.*/Human", 
+            spawn=sim_utils.MultiUsdFileCfg(
+            usd_path=usd_file_list,
+            random_choice=False,
+            scale = (label_res, label_res, label_res),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                disable_gravity=False,
+                retain_accelerations=False,
+                linear_damping=0.0,
+                angular_damping=0.0,
+                max_linear_velocity=1000.0,
+                max_angular_velocity=1000.0,
+                max_depenetration_velocity=1.0,
+                solver_position_iteration_count=8,
+                solver_velocity_iteration_count=0,
+            ),
+            articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+            articulation_enabled=False,
+            solver_position_iteration_count=8,
+            solver_velocity_iteration_count=0,
+            ),
+            ),
+            init_state = INIT_STATE_HUMAN,
+        )
+        self.human = RigidObject(human_cfg)
         # assign members
-        self.robot = self.scene["robot_US"]
-        self.human = self.scene["human"]
+        self.scene.clone_environments(copy_from_source=False)
+        # add articulation to scene
+        self.scene.articulations["robot_US"] = self.robot
 
 
     def _get_observations(self) -> dict:
+        # get human frame
+        self.human_world_poses = self.human.data.root_state_w # these are already the initial poses
+        # define world to human poses
+        self.world_to_human_pos, self.world_to_human_rot = self.human_world_poses[:, 0:3], self.human_world_poses[:, 3:7]
         # get ee pose w
         self.US_ee_pose_w = self.robot.data.body_state_w[:, self.robot_entity_cfg.body_ids[-1], 0:7]
 
         self.US_slicer.slice_US(self.world_to_human_pos, self.world_to_human_rot, self.US_ee_pose_w[:, 0:3], self.US_ee_pose_w[:, 3:7])
-        observations = {"policy": self.US_slicer.us_img_tensor}
+        US_img = self.US_slicer.us_img_tensor.unsqueeze(1) * self.cfg.observation_scale
+        observations = {"policy": US_img.to(torch.uint8)}
+
         return observations
 
         
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
+        # if action is 6 dim (SE), convert to 3 dim (xz pos + y rot)
+        if actions.shape[-1] == 6:
+            actions = actions[:, [0, 2, 5]]
         # update the target command
+        actions = torch.clamp(actions, -self.max_action, self.max_action)
+        # clip the action
         self.US_slicer.update_cmd(actions)
 
         # compute desired world to ee pose
@@ -303,7 +335,14 @@ class roboticUSEnv(DirectRLEnv):
         cur_cmd_pose = self.gt_motion_generator.human_cmd_state_from_ee_pose(cur_human_ee_pos, cur_human_ee_quat)
         gt_cmd, gt_cmd_pose = self.gt_motion_generator.generate_gt_human_cmd(cur_cmd_pose)
 
-        return 10-torch.norm(gt_cmd - self.actions, dim=-1)
+        # add reward for getting closer to the target
+        cur_distance_to_goal = torch.norm(cur_cmd_pose - self.goal_cmd_pose, dim=-1)
+
+        reward = self.distance_to_goal - cur_distance_to_goal
+
+        self.distance_to_goal = cur_distance_to_goal
+
+        return reward - 0.01 * torch.norm(gt_cmd - self.actions, dim=-1)
     
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
@@ -402,6 +441,14 @@ class roboticUSEnv(DirectRLEnv):
         # compute joint positions
         # set joint positions
         self._move_towards_target(world_to_ee_init_pos, world_to_ee_init_rot)
+
+        # init distance to goal
+        cur_human_ee_pos, cur_human_ee_quat = subtract_frame_transforms(
+            self.world_to_human_pos, self.world_to_human_rot, 
+            self.US_ee_pose_w[:, 0:3], self.US_ee_pose_w[:, 3:7]
+        )
+        self.cur_cmd_pose = self.gt_motion_generator.human_cmd_state_from_ee_pose(cur_human_ee_pos, cur_human_ee_quat)
+        self.distance_to_goal = torch.norm(self.cur_cmd_pose - self.goal_cmd_pose, dim=-1)
 
 
 

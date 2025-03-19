@@ -31,6 +31,7 @@ validation:
 
 sim:
   episode_length: 500
+  max_action: [10, 10, 0.2]
   patient_xz_range: [[100, 100, 1.5], [200, 200, 3.14]]
   patient_xz_init_range: [[100, 50, 1.5], [140, 120, 3.5]]
   if_use_ct: True
