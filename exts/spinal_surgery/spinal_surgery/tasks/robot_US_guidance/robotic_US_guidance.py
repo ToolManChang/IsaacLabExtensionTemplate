@@ -255,7 +255,7 @@ class roboticUSEnv(DirectRLEnv):
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             articulation_enabled=False,
-            solver_position_iteration_count=8,
+            solver_position_iteration_count=12,
             solver_velocity_iteration_count=0,
             ),
             ),
@@ -266,11 +266,12 @@ class roboticUSEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         # add articulation to scene
         self.scene.articulations["robot_US"] = self.robot
+        self.scene.rigid_objects["human"] = self.human
 
 
     def _get_observations(self) -> dict:
         # get human frame
-        self.human_world_poses = self.human.data.root_state_w # these are already the initial poses
+        self.human_world_poses = self.human.data.body_link_state_w[:, 0, 0:7] # these are already the initial poses
         # define world to human poses
         self.world_to_human_pos, self.world_to_human_rot = self.human_world_poses[:, 0:3], self.human_world_poses[:, 3:7]
         # get ee pose w
@@ -280,6 +281,9 @@ class roboticUSEnv(DirectRLEnv):
         US_img = self.US_slicer.us_img_tensor.unsqueeze(1) * self.cfg.observation_scale
         observations = {"policy": US_img.to(torch.uint8)}
 
+        if self.sim_cfg['vis_us']:
+            self.US_slicer.visualize()
+
         return observations
 
         
@@ -288,6 +292,8 @@ class roboticUSEnv(DirectRLEnv):
         if actions.shape[-1] == 6:
             actions = actions[:, [0, 2, 5]]
         # update the target command
+        # actions = torch.zeros_like(actions).to(self.sim.device)
+        # actions[:, 0] = 1
         actions = torch.clamp(actions, -self.max_action, self.max_action)
         # clip the action
         self.US_slicer.update_cmd(actions)
@@ -351,12 +357,17 @@ class roboticUSEnv(DirectRLEnv):
     
     def _move_towards_target(self, 
                              world_ee_target_pos: torch.Tensor, world_ee_target_quat: torch.Tensor,
-                             num_steps: int = 50):
+                             num_steps: int = 100):
         is_rendering = self.sim.has_gui() or self.sim.has_rtx_sensors()
 
         for _ in range(num_steps):
             self._sim_step_counter += 1
             # set actions into buffers
+
+            # get human frame
+            self.human_world_poses = self.human.data.body_link_state_w[:, 0, 0:7] # these are already the initial poses
+            # define world to human poses
+            self.world_to_human_pos, self.world_to_human_rot = self.human_world_poses[:, 0:3], self.human_world_poses[:, 3:7]
 
             # get current joint positions
             US_ee_pose_w = self.robot.data.body_state_w[:, self.robot_entity_cfg.body_ids[-1], 0:7]
@@ -424,8 +435,9 @@ class roboticUSEnv(DirectRLEnv):
         self.pose_diff_ik_controller.set_command(ik_commands_pose, self.US_ee_pos_b, self.US_ee_quat_b)
 
         # inverse kinematics?
+        self.world_to_base_pose = self.robot.data.root_link_state_w[:, 0:7]
         # get human frame
-        self.human_world_poses = self.human.data.root_state_w # these are already the initial poses
+        self.human_world_poses = self.human.data.body_link_state_w[:, 0, 0:7] # these are already the initial poses
         # define world to human poses
         self.world_to_human_pos, self.world_to_human_rot = self.human_world_poses[:, 0:3], self.human_world_poses[:, 3:7]
         self.world_to_base_pose = self.robot.data.root_link_state_w[:, 0:7]
@@ -449,6 +461,7 @@ class roboticUSEnv(DirectRLEnv):
         )
         self.cur_cmd_pose = self.gt_motion_generator.human_cmd_state_from_ee_pose(cur_human_ee_pos, cur_human_ee_quat)
         self.distance_to_goal = torch.norm(self.cur_cmd_pose - self.goal_cmd_pose, dim=-1)
+
 
 
 

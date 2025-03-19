@@ -157,10 +157,9 @@ class SurfaceMotionPlanner(HumanFrameViewer):
         target_rot_mat_wp = wp.from_torch(self.target_rot_mat, wp.mat33)
         wp.launch(
             kernel=my_quat_from_matrix,
-            dim=self.num_envs // self.n_human_types,
+            dim=self.num_envs,
             inputs=[
-                target_rot_mat_wp, 
-                self.target_quat_wp
+                target_rot_mat_wp, self.target_quat_wp
             ],
             device=self.device,
             record_tape=False
